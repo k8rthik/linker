@@ -70,6 +70,7 @@ class LinkApp:
         self.root = root
         self.root.title("linker")
         self.links = load_links()
+        self.filtered_links = self.links.copy()  # For search functionality
         self.sort_column = None
         self.sort_reverse = False
         self._build_ui()
@@ -78,6 +79,27 @@ class LinkApp:
     def _build_ui(self):
         container = tk.Frame(self.root)
         container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # Search frame
+        self.search_frame = tk.Frame(container)
+        self.search_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        tk.Label(self.search_frame, text="Search:").pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.search_var = tk.StringVar()
+        self.search_entry = tk.Entry(self.search_frame, textvariable=self.search_var, width=30)
+        self.search_entry.pack(side=tk.LEFT, padx=(0, 5))
+        
+        # Bind search as user types
+        self.search_var.trace('w', self._on_search_change)
+        
+        # Clear search button
+        self.clear_btn = tk.Button(self.search_frame, text="Clear", command=self._clear_search)
+        self.clear_btn.pack(side=tk.LEFT, padx=(0, 5))
+        
+        # Result count label
+        self.result_label = tk.Label(self.search_frame, text="")
+        self.result_label.pack(side=tk.LEFT, padx=(10, 0))
 
         # Create Treeview with columns
         columns = ("name", "url", "date_added", "last_opened")
@@ -116,8 +138,14 @@ class LinkApp:
         self.tree.bind("<Double-Button-1>", self._open_selected)
         self.tree.bind("<BackSpace>", self._delete_selected)
 
-        # Bind Escape key to deselect all
-        self.root.bind("<Escape>", self._deselect_all)
+        # Bind Escape key to deselect all and clear search
+        self.root.bind("<Escape>", self._on_escape)
+        
+        # Bind Ctrl+f/Cmd+f to focus search
+        if sys.platform == "darwin":
+            self.root.bind("<Command-f>", self._focus_search)
+        else:
+            self.root.bind("<Control-f>", self._focus_search)
 
         btn_frame = tk.Frame(self.root)
         btn_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -134,20 +162,71 @@ class LinkApp:
         for text, command in buttons:
             tk.Button(btn_frame, text=text, command=command).pack(side=tk.LEFT, padx=5)
 
+    def _focus_search(self, event=None):
+        """Focus the search entry when Ctrl+f/Cmd+f is pressed"""
+        self.search_entry.focus_set()
+        self.search_entry.select_range(0, tk.END)
+        return "break"  # Prevent default behavior
+
+    def _on_escape(self, event):
+        """Handle Escape key - clear search if search has text, otherwise deselect all"""
+        if self.search_var.get():
+            self._clear_search()
+        else:
+            self._deselect_all(event)
+
+    def _on_search_change(self, *args):
+        """Called when search text changes"""
+        search_term = self.search_var.get().lower().strip()
+        
+        if not search_term:
+            self.filtered_links = self.links.copy()
+        else:
+            self.filtered_links = []
+            for link in self.links:
+                name = link.get('name', '').lower()
+                url = link.get('url', '').lower()
+                if search_term in name or search_term in url:
+                    self.filtered_links.append(link)
+        
+        self._refresh_list()
+        self._update_result_count()
+
+    def _clear_search(self):
+        """Clear the search and show all links"""
+        self.search_var.set("")
+        self.search_entry.focus_set()
+
+    def _update_result_count(self):
+        """Update the result count label"""
+        total = len(self.links)
+        filtered = len(self.filtered_links)
+        
+        if self.search_var.get().strip():
+            self.result_label.config(text=f"Showing {filtered} of {total} links")
+        else:
+            self.result_label.config(text=f"{total} links")
+
     def _refresh_list(self):
         # Clear existing items
         for item in self.tree.get_children():
             self.tree.delete(item)
         
-        for i, link in enumerate(self.links):
+        # Use filtered_links instead of self.links for display
+        for i, link in enumerate(self.filtered_links):
             favorite_icon = "★" if link.get("favorite") else ""
             name = link.get('name', '')
             url = link.get('url', '')
             date_added = format_date(link.get('date_added'))
             last_opened = format_date(link.get('last_opened'))
             
-            self.tree.insert("", "end", iid=str(i), text=favorite_icon, 
+            # Use the original index from self.links for proper mapping
+            original_index = self.links.index(link)
+            self.tree.insert("", "end", iid=str(original_index), text=favorite_icon, 
                            values=(name, url, date_added, last_opened))
+        
+        # Update result count
+        self._update_result_count()
 
     def _mass_add_links(self):
         dialog = tk.Toplevel(self.root)
@@ -182,7 +261,8 @@ class LinkApp:
                     "last_opened": None
                 })
             save_links(self.links)
-            self._refresh_list()
+            # Update filtered links after adding new ones
+            self._on_search_change()
             dialog.destroy()
 
         tk.Button(btn_frame, text="OK", command=on_ok, width=10).pack(side=tk.LEFT, padx=5)
@@ -270,12 +350,14 @@ class LinkApp:
             # Find the index of the opened link
             opened_index = self.links.index(choice)
             
-            self._refresh_list()
+            # Update filtered links to reflect changes
+            self._on_search_change()
             
-            # Select and scroll to the opened link
-            item_id = str(opened_index)
-            self.tree.selection_set(item_id)
-            self.tree.see(item_id)
+            # Select and scroll to the opened link if it's visible in filtered results
+            if choice in self.filtered_links:
+                item_id = str(opened_index)
+                self.tree.selection_set(item_id)
+                self.tree.see(item_id)
 
     def _open_random_unread(self):
         # Filter links that have never been opened (last_opened is null)
@@ -293,12 +375,14 @@ class LinkApp:
             # Find the index of the opened link in the main links list
             opened_index = self.links.index(choice)
             
-            self._refresh_list()
+            # Update filtered links to reflect changes
+            self._on_search_change()
             
-            # Select and scroll to the opened link
-            item_id = str(opened_index)
-            self.tree.selection_set(item_id)
-            self.tree.see(item_id)
+            # Select and scroll to the opened link if it's visible in filtered results
+            if choice in self.filtered_links:
+                item_id = str(opened_index)
+                self.tree.selection_set(item_id)
+                self.tree.see(item_id)
 
     def _open_selected(self, event):
         indices = self._selected_indices()
@@ -331,7 +415,7 @@ class LinkApp:
         self._refresh_list()
 
     def _selected_indices(self):
-        """Returns a list of all selected indices"""
+        """Returns a list of all selected indices (in original links array)"""
         selected_items = self.tree.selection()
         return [int(item) for item in selected_items]
 
@@ -344,18 +428,22 @@ class LinkApp:
             self.sort_column = column
             self.sort_reverse = False
         
-        # Sort the links based on the column
-        if column == "favorite":
-            self.links.sort(key=lambda x: x.get("favorite", False), reverse=self.sort_reverse)
-        elif column == "name":
-            self.links.sort(key=lambda x: x.get("name", "").lower(), reverse=self.sort_reverse)
-        elif column == "url":
-            self.links.sort(key=lambda x: x.get("url", "").lower(), reverse=self.sort_reverse)
-        elif column == "date_added":
-            self.links.sort(key=lambda x: x.get("date_added", ""), reverse=self.sort_reverse)
-        elif column == "last_opened":
-            # Handle None values by treating them as empty strings for sorting
-            self.links.sort(key=lambda x: x.get("last_opened") or "", reverse=self.sort_reverse)
+        # Sort both the main links and filtered links
+        def sort_key(x):
+            if column == "favorite":
+                return x.get("favorite", False)
+            elif column == "name":
+                return x.get("name", "").lower()
+            elif column == "url":
+                return x.get("url", "").lower()
+            elif column == "date_added":
+                return x.get("date_added", "")
+            elif column == "last_opened":
+                return x.get("last_opened") or ""
+            return ""
+        
+        self.links.sort(key=sort_key, reverse=self.sort_reverse)
+        self.filtered_links.sort(key=sort_key, reverse=self.sort_reverse)
         
         # Update column headers to show sort direction
         self._update_column_headers()
