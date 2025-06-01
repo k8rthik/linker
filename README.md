@@ -154,6 +154,11 @@ python main.py
 ### Keyboard Shortcuts
 - **Ctrl/Cmd + F**: Focus search
 - **Escape**: Clear search (when search is focused) or deselect all (when list is focused)
+- **Ctrl/Cmd + D**: Toggle favorite status of selected links
+- **Ctrl/Cmd + E**: Toggle read/unread status of selected links
+- **Ctrl/Cmd + R**: Open random link
+- **Space**: Open random unread link
+- **Enter**: Edit selected link
 - **Double-click**: Open links
 - **Backspace**: Delete selected links
 

@@ -76,6 +76,7 @@ class LinkController:
         # Link list view callbacks
         self._link_list_view.set_double_click_callback(self._on_links_double_clicked)
         self._link_list_view.set_delete_key_callback(self._on_delete_key_pressed)
+        self._link_list_view.set_space_key_callback(self._open_random_unread)
         self._link_list_view.set_sort_callback(self._on_sort_requested)
     
     def _setup_keyboard_shortcuts(self) -> None:
@@ -85,6 +86,22 @@ class LinkController:
         
         # Escape key handling
         self._root.bind("<Escape>", self._on_escape_pressed)
+        
+        # Additional shortcuts
+        import sys
+        if sys.platform == "darwin":
+            # macOS shortcuts (using Command key)
+            self._root.bind("<Command-d>", lambda e: self._toggle_favorite())
+            self._root.bind("<Command-e>", lambda e: self._toggle_read_status())
+            self._root.bind("<Command-r>", lambda e: self._open_random())
+        else:
+            # Windows/Linux shortcuts (using Ctrl key)
+            self._root.bind("<Control-d>", lambda e: self._toggle_favorite())
+            self._root.bind("<Control-e>", lambda e: self._toggle_read_status())
+            self._root.bind("<Control-r>", lambda e: self._open_random())
+        
+        # Platform-independent shortcuts
+        self._root.bind("<Return>", lambda e: self._edit_link())
     
     def _refresh_view(self) -> None:
         """Refresh the view with current data."""

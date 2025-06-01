@@ -19,6 +19,7 @@ class LinkListView:
         # Callbacks
         self._on_double_click: Optional[Callable[[List[int]], None]] = None
         self._on_delete_key: Optional[Callable[[List[int]], None]] = None
+        self._on_space_key: Optional[Callable[[], None]] = None
         self._on_sort: Optional[Callable[[str, bool], None]] = None
         
         self._create_components()
@@ -62,6 +63,7 @@ class LinkListView:
         # Bind events
         self._tree.bind("<Double-Button-1>", self._on_double_click_event)
         self._tree.bind("<BackSpace>", self._on_delete_key_event)
+        self._tree.bind("<KeyPress-space>", self._on_space_key_event)
     
     def set_links(self, links: List[Link], filtered_links: List[Link]) -> None:
         """Set the links to display."""
@@ -172,6 +174,12 @@ class LinkListView:
             if indices:
                 self._on_delete_key(indices)
     
+    def _on_space_key_event(self, event) -> None:
+        """Handle space key event."""
+        if self._on_space_key:
+            self._on_space_key()
+            return "break"  # Prevent default behavior
+    
     def _on_column_clicked(self, column: str) -> None:
         """Handle column header click for sorting."""
         if self._on_sort:
@@ -189,6 +197,10 @@ class LinkListView:
     def set_delete_key_callback(self, callback: Callable[[List[int]], None]) -> None:
         """Set callback for delete key events."""
         self._on_delete_key = callback
+    
+    def set_space_key_callback(self, callback: Callable[[], None]) -> None:
+        """Set callback for space key events."""
+        self._on_space_key = callback
     
     def set_sort_callback(self, callback: Callable[[str, bool], None]) -> None:
         """Set callback for sort events."""
