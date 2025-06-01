@@ -68,13 +68,47 @@ def format_date(date_str):
 class LinkApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("linker")
+        
+        # Set custom window title and properties
+        self.root.title("Linker - Link Manager")
+        
+        # Try to set custom icon (with fallback if file doesn't exist)
+        try:
+            # For .ico files (Windows primarily, but works on other platforms)
+            self.root.iconbitmap("assets/linker_icon.ico")
+        except (tk.TclError, FileNotFoundError):
+            try:
+                # For .png files (cross-platform alternative)
+                icon_image = tk.PhotoImage(file="assets/linker_icon.png")
+                self.root.iconphoto(True, icon_image)
+            except (tk.TclError, FileNotFoundError):
+                # Fallback: no custom icon, use system default
+                pass
+        
+        # Set minimum window size for better UX
+        self.root.minsize(800, 500)
+        
+        # Set initial window size
+        self.root.geometry("1000x600")
+        
+        # Center the window on screen
+        self._center_window()
+        
         self.links = load_links()
         self.filtered_links = self.links.copy()  # For search functionality
         self.sort_column = None
         self.sort_reverse = False
         self._build_ui()
         self._refresh_list()
+
+    def _center_window(self):
+        """Center the window on the screen."""
+        self.root.update_idletasks()
+        width = self.root.winfo_width()
+        height = self.root.winfo_height()
+        x = (self.root.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.root.winfo_screenheight() // 2) - (height // 2)
+        self.root.geometry(f'{width}x{height}+{x}+{y}')
 
     def _build_ui(self):
         container = tk.Frame(self.root)

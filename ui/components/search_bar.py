@@ -87,4 +87,8 @@ class SearchBar:
     
     def set_clear_callback(self, callback: Callable[[], None]) -> None:
         """Set callback for clear action."""
-        self._on_clear = callback 
+        self._on_clear = callback
+
+    def has_focus(self) -> bool:
+        """Check if the search entry has focus."""
+        return self._search_entry == self._search_entry.focus_get() 

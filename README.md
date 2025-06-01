@@ -1,4 +1,4 @@
-# Link Manager - Refactored
+# Link Manager
 
 A clean, extensible link manager application built with Python and Tkinter, following SOLID principles and design patterns.
 
@@ -8,20 +8,20 @@ This application has been refactored to follow clean architecture principles wit
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    Presentation Layer                    │
+│                    Presentation Layer                   │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌──────────┐ │
 │  │   Controllers   │  │   UI Components │  │  Dialogs │ │
 │  └─────────────────┘  └─────────────────┘  └──────────┘ │
 ├─────────────────────────────────────────────────────────┤
 │                     Business Layer                      │
-│  ┌─────────────────┐  ┌─────────────────┐              │
-│  │     Services    │  │     Models      │              │
-│  └─────────────────┘  └─────────────────┘              │
+│  ┌─────────────────┐  ┌─────────────────┐               │
+│  │     Services    │  │     Models      │               │
+│  └─────────────────┘  └─────────────────┘               │
 ├─────────────────────────────────────────────────────────┤
 │                      Data Layer                         │
-│  ┌─────────────────┐  ┌─────────────────┐              │
-│  │  Repositories   │  │     Utils       │              │
-│  └─────────────────┘  └─────────────────┘              │
+│  ┌─────────────────┐  ┌─────────────────┐               │
+│  │  Repositories   │  │     Utils       │               │
+│  └─────────────────┘  └─────────────────┘               │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -153,29 +153,9 @@ python main.py
 
 ### Keyboard Shortcuts
 - **Ctrl/Cmd + F**: Focus search
-- **Escape**: Clear search or deselect all
+- **Escape**: Clear search (when search is focused) or deselect all (when list is focused)
 - **Double-click**: Open links
 - **Backspace**: Delete selected links
-
-## Benefits of Refactoring
-
-### Before (Original Code)
-- **Single Large Class**: 600+ lines in one class
-- **Mixed Responsibilities**: UI, business logic, and data access mixed together
-- **Hard to Test**: Tight coupling makes unit testing difficult
-- **Hard to Extend**: Adding features requires modifying existing code
-
-### After (Refactored Code)
-- **Separated Concerns**: Each class has a single responsibility
-- **Loose Coupling**: Components can be easily substituted
-- **Easy to Test**: Each component can be tested in isolation
-- **Easy to Extend**: New features can be added without modifying existing code
-
-### Code Quality Improvements
-- **Type Hints**: Full type annotations for better IDE support
-- **Error Handling**: Proper exception handling throughout
-- **Documentation**: Comprehensive docstrings and comments
-- **Validation**: Input validation at appropriate layers
 
 ## Testing Strategy
 
@@ -197,16 +177,9 @@ def test_add_link():
 ```
 
 ## Future Enhancements
-
-The clean architecture makes these enhancements easy to implement:
-
 - **Database Storage**: Implement `DatabaseLinkRepository`
 - **Cloud Sync**: Add cloud synchronization service
 - **Import/Export**: Add various format importers/exporters
 - **Themes**: Add theming support to UI components
 - **Plugins**: Plugin system for extensibility
 - **REST API**: Add API service for remote access
-
-## Migration from Original
-
-The refactored version maintains full compatibility with the original data format. Your existing `links.json` file will work without any changes. 

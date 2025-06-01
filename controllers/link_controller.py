@@ -156,11 +156,19 @@ class LinkController:
         self._refresh_view()
     
     def _on_escape_pressed(self, event) -> None:
-        """Handle escape key press."""
-        if self._search_bar.get_search_term():
+        """Handle escape key press based on which widget has focus."""
+        if self._search_bar.has_focus():
+            # Search bar has focus - clear search
             self._search_bar.clear_search()
-        else:
+        elif self._link_list_view.has_focus():
+            # Tree view has focus - clear selection
             self._link_list_view.clear_selection()
+        else:
+            # Fallback: if search has text, clear it; otherwise clear selection
+            if self._search_bar.get_search_term():
+                self._search_bar.clear_search()
+            else:
+                self._link_list_view.clear_selection()
     
     # Action methods
     def _add_links(self) -> None:
@@ -202,13 +210,17 @@ class LinkController:
             self._link_service.toggle_read_status(indices)
     
     def _open_random(self) -> None:
-        """Open a random link."""
-        success = self._link_service.open_random_link()
-        if not success:
+        """Open a random link and select it in the UI."""
+        link_index = self._link_service.open_random_link()
+        if link_index is not None:
+            self._link_list_view.select_and_scroll_to(link_index)
+        else:
             messagebox.showinfo("Info", "No links available.")
     
     def _open_random_unread(self) -> None:
-        """Open a random unread link."""
-        success = self._link_service.open_random_unread_link()
-        if not success:
-            messagebox.showinfo("Info", "No unread links available.") 
+        """Open a random unread link and select it in the UI."""
+        link_index = self._link_service.open_random_unread_link()
+        if link_index is not None:
+            self._link_list_view.select_and_scroll_to(link_index)
+        else:
+            messagebox.showinfo("Info", "No unread links available.")

@@ -144,10 +144,14 @@ class LinkListView:
             elif self._sort_column == "last_opened":
                 self._tree.heading("last_opened", text="Last Opened" + indicator)
     
+    def has_focus(self) -> bool:
+        """Check if the tree view has focus."""
+        return self._tree == self._tree.focus_get()
+
     def bind_keyboard_shortcuts(self, root: tk.Tk) -> None:
         """Bind keyboard shortcuts."""
-        # Bind Escape key to clear selection
-        root.bind("<Escape>", lambda e: self.clear_selection())
+        # Note: Escape key is handled by the controller based on focus
+        pass
     
     def focus(self) -> None:
         """Give focus to the tree view."""

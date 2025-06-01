@@ -142,27 +142,29 @@ class LinkService:
                     self._repository.update(link_id, link)
         self._notify_observers()
     
-    def open_random_link(self) -> bool:
-        """Open a random link."""
+    def open_random_link(self) -> Optional[int]:
+        """Open a random link and return its index."""
         links = self.get_all_links()
         if not links:
-            return False
+            return None
         
         choice = random.choice(links)
         link_id = links.index(choice)
-        return self.open_link(link_id)
+        success = self.open_link(link_id)
+        return link_id if success else None
     
-    def open_random_unread_link(self) -> bool:
-        """Open a random unread link."""
+    def open_random_unread_link(self) -> Optional[int]:
+        """Open a random unread link and return its index."""
         links = self.get_all_links()
         unread_links = [link for link in links if link.is_unread()]
         
         if not unread_links:
-            return False
+            return None
         
         choice = random.choice(unread_links)
         link_id = links.index(choice)
-        return self.open_link(link_id)
+        success = self.open_link(link_id)
+        return link_id if success else None
     
     def search_links(self, search_term: str) -> List[Link]:
         """Search links by name and URL."""
