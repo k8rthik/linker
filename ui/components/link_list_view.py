@@ -20,14 +20,13 @@ class LinkListView:
         self._on_double_click: Optional[Callable[[List[int]], None]] = None
         self._on_delete_key: Optional[Callable[[List[int]], None]] = None
         self._on_sort: Optional[Callable[[str, bool], None]] = None
-        self._on_selection_changed: Optional[Callable[[List[int]], None]] = None
         
         self._create_components()
     
     def _create_components(self) -> None:
         """Create the treeview and scrollbar components."""
         # Create Treeview with columns
-        columns = ("name", "url", "date_added", "last_opened", "tags")
+        columns = ("name", "url", "date_added", "last_opened")
         self._tree = ttk.Treeview(self._parent, columns=columns, show="tree headings", selectmode="extended")
         
         # Configure columns
@@ -46,16 +45,12 @@ class LinkListView:
         self._tree.heading("last_opened", text="Last Opened")
         self._tree.column("last_opened", width=130, minwidth=130)
         
-        self._tree.heading("tags", text="Tags")
-        self._tree.column("tags", width=150, minwidth=100)
-        
         # Bind column header clicks for sorting
         self._tree.heading("#0", command=lambda: self._on_column_clicked("favorite"))
         self._tree.heading("name", command=lambda: self._on_column_clicked("name"))
         self._tree.heading("url", command=lambda: self._on_column_clicked("url"))
         self._tree.heading("date_added", command=lambda: self._on_column_clicked("date_added"))
         self._tree.heading("last_opened", command=lambda: self._on_column_clicked("last_opened"))
-        self._tree.heading("tags", command=lambda: self._on_column_clicked("tags"))
         
         self._tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
@@ -67,7 +62,6 @@ class LinkListView:
         # Bind events
         self._tree.bind("<Double-Button-1>", self._on_double_click_event)
         self._tree.bind("<BackSpace>", self._on_delete_key_event)
-        self._tree.bind("<<TreeviewSelect>>", self._on_selection_changed_event)
     
     def set_links(self, links: List[Link], filtered_links: List[Link]) -> None:
         """Set the links to display."""
@@ -88,13 +82,12 @@ class LinkListView:
             url = link.url
             date_added = DateFormatter.format_datetime(link.date_added)
             last_opened = DateFormatter.format_datetime(link.last_opened)
-            tags_display = ", ".join(sorted(link.tags)) if link.tags else ""
             
             # Use the original index from self._links for proper mapping
             original_index = self._links.index(link) if link in self._links else -1
             if original_index >= 0:
                 self._tree.insert("", "end", iid=str(original_index), text=favorite_icon, 
-                               values=(name, url, date_added, last_opened, tags_display))
+                               values=(name, url, date_added, last_opened))
     
     def get_selected_indices(self) -> List[int]:
         """Get the indices of selected items."""
@@ -136,7 +129,6 @@ class LinkListView:
         self._tree.heading("url", text="URL")
         self._tree.heading("date_added", text="Date Added")
         self._tree.heading("last_opened", text="Last Opened")
-        self._tree.heading("tags", text="Tags")
         
         # Add sort indicator to current sort column
         if self._sort_column:
@@ -151,8 +143,6 @@ class LinkListView:
                 self._tree.heading("date_added", text="Date Added" + indicator)
             elif self._sort_column == "last_opened":
                 self._tree.heading("last_opened", text="Last Opened" + indicator)
-            elif self._sort_column == "tags":
-                self._tree.heading("tags", text="Tags" + indicator)
     
     def bind_keyboard_shortcuts(self, root: tk.Tk) -> None:
         """Bind keyboard shortcuts."""
@@ -187,12 +177,6 @@ class LinkListView:
                 reverse = not self._sort_reverse
             self._on_sort(column, reverse)
     
-    def _on_selection_changed_event(self, event) -> None:
-        """Handle selection change event."""
-        if self._on_selection_changed:
-            indices = self.get_selected_indices()
-            self._on_selection_changed(indices)
-    
     # Callback setters
     def set_double_click_callback(self, callback: Callable[[List[int]], None]) -> None:
         """Set callback for double-click events."""
@@ -204,8 +188,4 @@ class LinkListView:
     
     def set_sort_callback(self, callback: Callable[[str, bool], None]) -> None:
         """Set callback for sort events."""
-        self._on_sort = callback
-    
-    def set_selection_changed_callback(self, callback: Callable[[List[int]], None]) -> None:
-        """Set callback for selection change events."""
-        self._on_selection_changed = callback 
+        self._on_sort = callback 

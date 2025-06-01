@@ -1,20 +1,18 @@
 from datetime import datetime
-from typing import Optional, Set
+from typing import Optional
 
 
 class Link:
     """Model representing a link with metadata."""
     
     def __init__(self, name: str, url: str, favorite: bool = False, 
-                 date_added: Optional[str] = None, last_opened: Optional[str] = None,
-                 tags: Optional[Set[str]] = None):
+                 date_added: Optional[str] = None, last_opened: Optional[str] = None):
         self._validate_required_fields(name, url)
         self._name = name.strip()
         self._url = url.strip()
         self._favorite = favorite
         self._date_added = date_added or datetime.now().isoformat()
         self._last_opened = last_opened
-        self._tags = tags or set()
     
     @property
     def name(self) -> str:
@@ -63,37 +61,6 @@ class Link:
             self._validate_datetime(value)
         self._last_opened = value
     
-    @property
-    def tags(self) -> Set[str]:
-        """Get a copy of the tags set."""
-        return self._tags.copy()
-    
-    @tags.setter
-    def tags(self, value: Set[str]) -> None:
-        """Set the tags, ensuring they're clean strings."""
-        self._tags = {tag.strip() for tag in value if tag.strip()}
-
-    def add_tag(self, tag: str) -> None:
-        """Add a tag to the link."""
-        if tag and tag.strip():
-            self._tags.add(tag.strip())
-    
-    def remove_tag(self, tag: str) -> None:
-        """Remove a tag from the link."""
-        self._tags.discard(tag.strip())
-    
-    def has_tag(self, tag: str) -> bool:
-        """Check if link has a specific tag."""
-        return tag.strip() in self._tags
-    
-    def clear_tags(self) -> None:
-        """Remove all tags from the link."""
-        self._tags.clear()
-    
-    def get_tags_list(self) -> list:
-        """Get tags as a sorted list."""
-        return sorted(list(self._tags))
-
     def mark_as_opened(self) -> None:
         """Mark the link as opened with current timestamp."""
         self._last_opened = datetime.now().isoformat()
@@ -113,27 +80,18 @@ class Link:
             "url": self._url,
             "favorite": self._favorite,
             "date_added": self._date_added,
-            "last_opened": self._last_opened,
-            "tags": list(self._tags)
+            "last_opened": self._last_opened
         }
     
     @classmethod
     def from_dict(cls, data: dict) -> 'Link':
         """Create link from dictionary."""
-        tags = data.get("tags", [])
-        # Convert from list to set, handling backward compatibility
-        if isinstance(tags, list):
-            tags_set = set(tags)
-        else:
-            tags_set = set()
-            
         return cls(
             name=data.get("name", ""),
             url=data.get("url", ""),
             favorite=data.get("favorite", False),
             date_added=data.get("date_added"),
-            last_opened=data.get("last_opened"),
-            tags=tags_set
+            last_opened=data.get("last_opened")
         )
     
     def get_formatted_url(self) -> str:
@@ -161,5 +119,4 @@ class Link:
     
     def __repr__(self) -> str:
         return (f"Link(name='{self._name}', url='{self._url}', "
-                f"favorite={self._favorite}, date_added='{self._date_added}', "
-                f"tags={self._tags})") 
+                f"favorite={self._favorite}, date_added='{self._date_added}')") 

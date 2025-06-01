@@ -41,12 +41,6 @@ class LinkService:
         self._repository.add(link)
         self._notify_observers()
     
-    def add_link_with_tags(self, name: str, url: str, tags: set) -> None:
-        """Add a new link with tags."""
-        link = Link(name=name, url=url, tags=tags)
-        self._repository.add(link)
-        self._notify_observers()
-    
     def add_links_batch(self, urls: List[str]) -> None:
         """Add multiple links at once."""
         links = self.get_all_links()
@@ -62,20 +56,6 @@ class LinkService:
         try:
             link = Link(name=name, url=url, favorite=favorite, 
                        date_added=date_added, last_opened=last_opened)
-            success = self._repository.update(link_id, link)
-            if success:
-                self._notify_observers()
-            return success
-        except ValueError:
-            return False
-    
-    def update_link_with_tags(self, link_id: int, name: str, url: str, favorite: bool, 
-                             tags: set, date_added: Optional[str] = None, 
-                             last_opened: Optional[str] = None) -> bool:
-        """Update an existing link with tags."""
-        try:
-            link = Link(name=name, url=url, favorite=favorite, 
-                       date_added=date_added, last_opened=last_opened, tags=tags)
             success = self._repository.update(link_id, link)
             if success:
                 self._notify_observers()
@@ -197,100 +177,6 @@ class LinkService:
             if search_term_lower in link.name.lower() or search_term_lower in link.url.lower()
         ]
     
-    def search_links_with_tags(self, search_term: str) -> List[Link]:
-        """Search links by name, URL, and tags."""
-        if not search_term.strip():
-            return self.get_all_links()
-        
-        search_term_lower = search_term.lower().strip()
-        all_links = self.get_all_links()
-        
-        return [
-            link for link in all_links
-            if (search_term_lower in link.name.lower() or 
-                search_term_lower in link.url.lower() or
-                any(search_term_lower in tag.lower() for tag in link.tags))
-        ]
-    
-    def filter_links_by_tag(self, tag: str) -> List[Link]:
-        """Filter links that have a specific tag."""
-        if not tag.strip():
-            return self.get_all_links()
-        
-        all_links = self.get_all_links()
-        return [link for link in all_links if link.has_tag(tag)]
-    
-    def filter_links_by_tags(self, tags: List[str], match_all: bool = True) -> List[Link]:
-        """Filter links by multiple tags.
-        
-        Args:
-            tags: List of tag names to filter by
-            match_all: If True, links must have ALL tags. If False, links need ANY tag.
-        """
-        if not tags:
-            return self.get_all_links()
-        
-        all_links = self.get_all_links()
-        
-        if match_all:
-            return [
-                link for link in all_links 
-                if all(link.has_tag(tag) for tag in tags)
-            ]
-        else:
-            return [
-                link for link in all_links 
-                if any(link.has_tag(tag) for tag in tags)
-            ]
-    
-    def get_all_tags(self) -> List[str]:
-        """Get all unique tags across all links."""
-        all_tags = set()
-        for link in self.get_all_links():
-            all_tags.update(link.tags)
-        return sorted(list(all_tags))
-    
-    def get_tag_usage_count(self) -> dict:
-        """Get tag usage count across all links."""
-        tag_counts = {}
-        for link in self.get_all_links():
-            for tag in link.tags:
-                tag_counts[tag] = tag_counts.get(tag, 0) + 1
-        return tag_counts
-    
-    def add_tag_to_links(self, link_ids: List[int], tag: str) -> None:
-        """Add a tag to multiple links."""
-        if not tag.strip():
-            return
-        
-        for link_id in link_ids:
-            link = self._repository.find_by_id(link_id)
-            if link:
-                link.add_tag(tag)
-                self._repository.update(link_id, link)
-        self._notify_observers()
-    
-    def remove_tag_from_links(self, link_ids: List[int], tag: str) -> None:
-        """Remove a tag from multiple links."""
-        if not tag.strip():
-            return
-        
-        for link_id in link_ids:
-            link = self._repository.find_by_id(link_id)
-            if link:
-                link.remove_tag(tag)
-                self._repository.update(link_id, link)
-        self._notify_observers()
-    
-    def clear_tags_from_links(self, link_ids: List[int]) -> None:
-        """Clear all tags from multiple links."""
-        for link_id in link_ids:
-            link = self._repository.find_by_id(link_id)
-            if link:
-                link.clear_tags()
-                self._repository.update(link_id, link)
-        self._notify_observers()
-    
     def sort_links(self, links: List[Link], sort_by: str, reverse: bool = False) -> List[Link]:
         """Sort links by specified criteria."""
         def sort_key(link: Link):
@@ -304,8 +190,6 @@ class LinkService:
                 return link.date_added
             elif sort_by == "last_opened":
                 return link.last_opened or ""
-            elif sort_by == "tags":
-                return ", ".join(sorted(tag.lower() for tag in link.tags))
             return ""
         
         return sorted(links, key=sort_key, reverse=reverse) 
