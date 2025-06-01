@@ -70,6 +70,8 @@ class LinkApp:
         self.root = root
         self.root.title("linker")
         self.links = load_links()
+        self.sort_column = None
+        self.sort_reverse = False
         self._build_ui()
         self._refresh_list()
 
@@ -97,6 +99,13 @@ class LinkApp:
         self.tree.heading("last_opened", text="Last Opened")
         self.tree.column("last_opened", width=130, minwidth=130)
         
+        # Bind column header clicks for sorting
+        self.tree.heading("#0", command=lambda: self._sort_column("favorite"))
+        self.tree.heading("name", command=lambda: self._sort_column("name"))
+        self.tree.heading("url", command=lambda: self._sort_column("url"))
+        self.tree.heading("date_added", command=lambda: self._sort_column("date_added"))
+        self.tree.heading("last_opened", command=lambda: self._sort_column("last_opened"))
+        
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
         scrollbar = ttk.Scrollbar(container, orient=tk.VERTICAL, command=self.tree.yview)
@@ -114,6 +123,7 @@ class LinkApp:
             ("Mass Add Links", self._mass_add_links),
             ("Edit Name", self._edit_name),
             ("Toggle Favorite", self._toggle_fav),
+            ("Mark Read/Unread", self._toggle_read_status),
             ("Open Random", self._open_random),
             ("Open Unread", self._open_random_unread)
         ]
@@ -195,6 +205,8 @@ class LinkApp:
             self.links[idx]["name"] = new_name
             save_links(self.links)
             self._refresh_list()
+            # Restore selection
+            self._restore_selection(indices)
 
     def _toggle_fav(self):
         indices = self._selected_indices()
@@ -207,6 +219,40 @@ class LinkApp:
         
         save_links(self.links)
         self._refresh_list()
+        # Restore selection
+        self._restore_selection(indices)
+
+    def _toggle_read_status(self):
+        indices = self._selected_indices()
+        if not indices:
+            return
+        
+        # Check if all selected items are unread (last_opened is None)
+        selected_links = [self.links[idx] for idx in indices]
+        all_unread = all(link.get("last_opened") is None for link in selected_links)
+        
+        current_time = datetime.now().isoformat()
+        
+        for idx in indices:
+            link = self.links[idx]
+            if all_unread:
+                # If all are unread, mark them as read
+                link["last_opened"] = current_time
+            else:
+                # If any are read or mixed, mark all as unread
+                link["last_opened"] = None
+        
+        save_links(self.links)
+        self._refresh_list()
+        # Restore selection
+        self._restore_selection(indices)
+
+    def _restore_selection(self, indices):
+        """Restore selection to the given indices after a refresh"""
+        for idx in indices:
+            if idx < len(self.links):  # Make sure index is still valid
+                item_id = str(idx)
+                self.tree.selection_add(item_id)
 
     def _open_random(self):
         if not self.links:
@@ -285,6 +331,57 @@ class LinkApp:
         """Returns a list of all selected indices"""
         selected_items = self.tree.selection()
         return [int(item) for item in selected_items]
+
+    def _sort_column(self, column):
+        """Sort the links by the specified column"""
+        # Toggle sort direction if clicking the same column
+        if self.sort_column == column:
+            self.sort_reverse = not self.sort_reverse
+        else:
+            self.sort_column = column
+            self.sort_reverse = False
+        
+        # Sort the links based on the column
+        if column == "favorite":
+            self.links.sort(key=lambda x: x.get("favorite", False), reverse=self.sort_reverse)
+        elif column == "name":
+            self.links.sort(key=lambda x: x.get("name", "").lower(), reverse=self.sort_reverse)
+        elif column == "url":
+            self.links.sort(key=lambda x: x.get("url", "").lower(), reverse=self.sort_reverse)
+        elif column == "date_added":
+            self.links.sort(key=lambda x: x.get("date_added", ""), reverse=self.sort_reverse)
+        elif column == "last_opened":
+            # Handle None values by treating them as empty strings for sorting
+            self.links.sort(key=lambda x: x.get("last_opened") or "", reverse=self.sort_reverse)
+        
+        # Update column headers to show sort direction
+        self._update_column_headers()
+        
+        # Refresh the display
+        self._refresh_list()
+    
+    def _update_column_headers(self):
+        """Update column headers to show sort direction"""
+        # Reset all headers
+        self.tree.heading("#0", text="Fav")
+        self.tree.heading("name", text="Name")
+        self.tree.heading("url", text="URL")
+        self.tree.heading("date_added", text="Date Added")
+        self.tree.heading("last_opened", text="Last Opened")
+        
+        # Add sort indicator to current sort column
+        if self.sort_column:
+            indicator = " ↓" if self.sort_reverse else " ↑"
+            if self.sort_column == "favorite":
+                self.tree.heading("#0", text="Fav" + indicator)
+            elif self.sort_column == "name":
+                self.tree.heading("name", text="Name" + indicator)
+            elif self.sort_column == "url":
+                self.tree.heading("url", text="URL" + indicator)
+            elif self.sort_column == "date_added":
+                self.tree.heading("date_added", text="Date Added" + indicator)
+            elif self.sort_column == "last_opened":
+                self.tree.heading("last_opened", text="Last Opened" + indicator)
 
 
 if __name__ == "__main__":
