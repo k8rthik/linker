@@ -116,6 +116,9 @@ class LinkApp:
         self.tree.bind("<Double-Button-1>", self._open_selected)
         self.tree.bind("<BackSpace>", self._delete_selected)
 
+        # Bind Escape key to deselect all
+        self.root.bind("<Escape>", self._deselect_all)
+
         btn_frame = tk.Frame(self.root)
         btn_frame.pack(fill=tk.X, padx=10, pady=5)
 
@@ -382,6 +385,9 @@ class LinkApp:
                 self.tree.heading("date_added", text="Date Added" + indicator)
             elif self.sort_column == "last_opened":
                 self.tree.heading("last_opened", text="Last Opened" + indicator)
+
+    def _deselect_all(self, event):
+        self.tree.selection_clear()
 
 
 if __name__ == "__main__":
