@@ -5,7 +5,8 @@ import sys
 import subprocess
 import tkinter as tk
 import webbrowser
-from tkinter import messagebox, simpledialog
+from datetime import datetime
+from tkinter import messagebox, simpledialog, ttk
 
 DATA_FILE = "links.json"
 
@@ -14,7 +15,16 @@ def load_links():
     if not os.path.exists(DATA_FILE):
         return []
     with open(DATA_FILE, "r") as f:
-        return json.load(f)
+        links = json.load(f)
+    
+    # Add missing fields for backward compatibility
+    for link in links:
+        if "date_added" not in link:
+            link["date_added"] = datetime.now().isoformat()
+        if "last_opened" not in link:
+            link["last_opened"] = None
+    
+    return links
 
 
 def save_links(links):
@@ -28,7 +38,7 @@ def open_in_browser(url):
 
     # Try webbrowser first
     if webbrowser.open_new_tab(url):
-        return
+        return True
 
     # Fallback to OS-specific commands
     try:
@@ -38,8 +48,21 @@ def open_in_browser(url):
             subprocess.check_call(["xdg-open", url])
         elif sys.platform.startswith("win"):
             subprocess.check_call(["start", url])
+        return True
     except Exception:
         messagebox.showerror("Error", f"Could not open URL: {url}")
+        return False
+
+
+def format_date(date_str):
+    """Format datetime string for display"""
+    if not date_str:
+        return "Never"
+    try:
+        dt = datetime.fromisoformat(date_str)
+        return dt.strftime("%Y-%m-%d %H:%M")
+    except:
+        return "Invalid"
 
 
 class LinkApp:
@@ -54,16 +77,35 @@ class LinkApp:
         container = tk.Frame(self.root)
         container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        self.listbox = tk.Listbox(container, width=50, height=15, selectmode=tk.EXTENDED)
-        self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # Create Treeview with columns
+        columns = ("name", "url", "date_added", "last_opened")
+        self.tree = ttk.Treeview(container, columns=columns, show="tree headings", selectmode="extended")
         
-        scrollbar = tk.Scrollbar(container, orient=tk.VERTICAL, command=self.listbox.yview)
+        # Configure columns
+        self.tree.heading("#0", text="Fav")
+        self.tree.column("#0", width=40, minwidth=40)
+        
+        self.tree.heading("name", text="Name")
+        self.tree.column("name", width=200, minwidth=150)
+        
+        self.tree.heading("url", text="URL")
+        self.tree.column("url", width=300, minwidth=200)
+        
+        self.tree.heading("date_added", text="Date Added")
+        self.tree.column("date_added", width=130, minwidth=130)
+        
+        self.tree.heading("last_opened", text="Last Opened")
+        self.tree.column("last_opened", width=130, minwidth=130)
+        
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        scrollbar = ttk.Scrollbar(container, orient=tk.VERTICAL, command=self.tree.yview)
         scrollbar.pack(side=tk.LEFT, fill=tk.Y)
-        self.listbox.config(yscrollcommand=scrollbar.set)
+        self.tree.config(yscrollcommand=scrollbar.set)
 
         # Bind double-click to open link and Delete key to delete link
-        self.listbox.bind("<Double-Button-1>", self._open_selected)
-        self.listbox.bind("<BackSpace>", self._delete_selected)
+        self.tree.bind("<Double-Button-1>", self._open_selected)
+        self.tree.bind("<BackSpace>", self._delete_selected)
 
         btn_frame = tk.Frame(self.root)
         btn_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -72,21 +114,27 @@ class LinkApp:
             ("Mass Add Links", self._mass_add_links),
             ("Edit Name", self._edit_name),
             ("Toggle Favorite", self._toggle_fav),
-            ("Open Random", self._open_random)
+            ("Open Random", self._open_random),
+            ("Open Unread", self._open_random_unread)
         ]
         
         for text, command in buttons:
             tk.Button(btn_frame, text=text, command=command).pack(side=tk.LEFT, padx=5)
 
     def _refresh_list(self):
-        self.listbox.delete(0, tk.END)
-        for link in self.links:
-            prefix = "★ " if link.get("favorite") else "  "
-            name = link.get('name')
-            url = link.get('url')
+        # Clear existing items
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        
+        for i, link in enumerate(self.links):
+            favorite_icon = "★" if link.get("favorite") else ""
+            name = link.get('name', '')
+            url = link.get('url', '')
+            date_added = format_date(link.get('date_added'))
+            last_opened = format_date(link.get('last_opened'))
             
-            display_text = f"{prefix}{name}" if name == url else f"{prefix}{name} ({url})"
-            self.listbox.insert(tk.END, display_text)
+            self.tree.insert("", "end", iid=str(i), text=favorite_icon, 
+                           values=(name, url, date_added, last_opened))
 
     def _mass_add_links(self):
         dialog = tk.Toplevel(self.root)
@@ -111,8 +159,15 @@ class LinkApp:
         def on_ok():
             raw = text_widget.get("1.0", tk.END).strip()
             lines = [line.strip() for line in raw.splitlines() if line.strip()]
+            current_time = datetime.now().isoformat()
             for url in lines:
-                self.links.append({"name": url, "url": url, "favorite": False})
+                self.links.append({
+                    "name": url, 
+                    "url": url, 
+                    "favorite": False,
+                    "date_added": current_time,
+                    "last_opened": None
+                })
             save_links(self.links)
             self._refresh_list()
             dialog.destroy()
@@ -159,15 +214,37 @@ class LinkApp:
             return
 
         choice = random.choice(self.links)
-        open_in_browser(choice["url"])
+        if open_in_browser(choice["url"]):
+            choice["last_opened"] = datetime.now().isoformat()
+            save_links(self.links)
+            self._refresh_list()
+
+    def _open_random_unread(self):
+        # Filter links that have never been opened (last_opened is null)
+        unread_links = [link for link in self.links if link.get("last_opened") is None]
+        
+        if not unread_links:
+            messagebox.showinfo("Info", "No unread links available.")
+            return
+
+        choice = random.choice(unread_links)
+        if open_in_browser(choice["url"]):
+            choice["last_opened"] = datetime.now().isoformat()
+            save_links(self.links)
+            self._refresh_list()
 
     def _open_selected(self, event):
         indices = self._selected_indices()
         if not indices:
             return
 
+        current_time = datetime.now().isoformat()
         for idx in indices:
-            open_in_browser(self.links[idx]["url"])
+            if open_in_browser(self.links[idx]["url"]):
+                self.links[idx]["last_opened"] = current_time
+        
+        save_links(self.links)
+        self._refresh_list()
 
     def _delete_selected(self, event):
         indices = self._selected_indices()
@@ -188,7 +265,8 @@ class LinkApp:
 
     def _selected_indices(self):
         """Returns a list of all selected indices"""
-        return list(self.listbox.curselection())
+        selected_items = self.tree.selection()
+        return [int(item) for item in selected_items]
 
 
 if __name__ == "__main__":
