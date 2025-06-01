@@ -217,7 +217,16 @@ class LinkApp:
         if open_in_browser(choice["url"]):
             choice["last_opened"] = datetime.now().isoformat()
             save_links(self.links)
+            
+            # Find the index of the opened link
+            opened_index = self.links.index(choice)
+            
             self._refresh_list()
+            
+            # Select and scroll to the opened link
+            item_id = str(opened_index)
+            self.tree.selection_set(item_id)
+            self.tree.see(item_id)
 
     def _open_random_unread(self):
         # Filter links that have never been opened (last_opened is null)
@@ -231,7 +240,16 @@ class LinkApp:
         if open_in_browser(choice["url"]):
             choice["last_opened"] = datetime.now().isoformat()
             save_links(self.links)
+            
+            # Find the index of the opened link in the main links list
+            opened_index = self.links.index(choice)
+            
             self._refresh_list()
+            
+            # Select and scroll to the opened link
+            item_id = str(opened_index)
+            self.tree.selection_set(item_id)
+            self.tree.see(item_id)
 
     def _open_selected(self, event):
         indices = self._selected_indices()
