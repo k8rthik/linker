@@ -24,6 +24,38 @@ def save_links(links):
     print(f"Saved {len(links)} links to {DATA_FILE}.")
 
 
+def open_in_browser(url):
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+        print(f"[DEBUG] Prepending 'https://' to URL: {url!r}")
+
+    print(f"[DEBUG] Attempting to open URL via webbrowser.open_new_tab: {url!r}")
+    success = webbrowser.open_new_tab(url)
+    print(f"[DEBUG] webbrowser.open_new_tab returned: {success}")
+    if success:
+        return
+
+    # Fallback path: use OS-specific “open”/“xdg-open”/“start” command
+    if sys.platform == "darwin":
+        cmd = ["open", url]
+    elif sys.platform.startswith("linux"):
+        cmd = ["xdg-open", url]
+    elif sys.platform.startswith("win"):
+        cmd = ["start", url]
+    else:
+        print(
+            f"[ERROR] No known fallback for platform {sys.platform!r}. URL not opened."
+        )
+        return
+
+    try:
+        print(f"[DEBUG] Falling back to subprocess: {cmd!r}")
+        subprocess.check_call(cmd)
+        print("[DEBUG] subprocess fallback succeeded.")
+    except Exception as e:
+        print(f"[ERROR] subprocess fallback failed: {e}")
+
+
 class LinkApp:
     def __init__(self, root):
         self.root = root
@@ -47,7 +79,7 @@ class LinkApp:
         # Bind double-click to open link
         self.listbox.bind("<Double-Button-1>", self._open_selected)
         # Bind Delete key to delete link
-        self.listbox.bind("<Delete>", self._delete_selected)
+        self.listbox.bind("<BackSpace>", self._delete_selected)
 
         btn_frame = tk.Frame(self.root)
         btn_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -162,18 +194,22 @@ class LinkApp:
             print("Open Random: no links available.")
             messagebox.showinfo("Info", "No links available.")
             return
+
         choice = random.choice(self.links)
-        print(f"Randomly selected: '{choice['name']}' -> {choice['url']}")
-        webbrowser.open(choice.get("url"))
+        url = choice["url"]
+        print(f"Randomly selected: '{choice['name']}' -> {url!r}")
+        open_in_browser(url)
 
     def _open_selected(self, event):
         idx = self._selected_index()
         if idx is None:
             print("Open Selected: no selection on double-click.")
             return
+
         link = self.links[idx]
-        print(f"Opening selected link: '{link['name']}' -> {link['url']}")
-        webbrowser.open(link.get("url"))
+        url = link["url"]
+        print(f"Opening selected link: '{link['name']}' -> {url!r}")
+        open_in_browser(url)
 
     def _delete_selected(self, event):
         idx = self._selected_index()
