@@ -1,6 +1,8 @@
 import json
 import os
 import random
+import sys
+import subprocess
 import tkinter as tk
 import webbrowser
 from tkinter import messagebox, simpledialog
@@ -10,50 +12,34 @@ DATA_FILE = "links.json"
 
 def load_links():
     if not os.path.exists(DATA_FILE):
-        print("No data file found. Starting with an empty list.")
         return []
     with open(DATA_FILE, "r") as f:
-        links = json.load(f)
-    print(f"Loaded {len(links)} links from {DATA_FILE}.")
-    return links
+        return json.load(f)
 
 
 def save_links(links):
     with open(DATA_FILE, "w") as f:
         json.dump(links, f, indent=4)
-    print(f"Saved {len(links)} links to {DATA_FILE}.")
 
 
 def open_in_browser(url):
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
-        print(f"[DEBUG] Prepending 'https://' to URL: {url!r}")
 
-    print(f"[DEBUG] Attempting to open URL via webbrowser.open_new_tab: {url!r}")
-    success = webbrowser.open_new_tab(url)
-    print(f"[DEBUG] webbrowser.open_new_tab returned: {success}")
-    if success:
+    # Try webbrowser first
+    if webbrowser.open_new_tab(url):
         return
 
-    # Fallback path: use OS-specific “open”/“xdg-open”/“start” command
-    if sys.platform == "darwin":
-        cmd = ["open", url]
-    elif sys.platform.startswith("linux"):
-        cmd = ["xdg-open", url]
-    elif sys.platform.startswith("win"):
-        cmd = ["start", url]
-    else:
-        print(
-            f"[ERROR] No known fallback for platform {sys.platform!r}. URL not opened."
-        )
-        return
-
+    # Fallback to OS-specific commands
     try:
-        print(f"[DEBUG] Falling back to subprocess: {cmd!r}")
-        subprocess.check_call(cmd)
-        print("[DEBUG] subprocess fallback succeeded.")
-    except Exception as e:
-        print(f"[ERROR] subprocess fallback failed: {e}")
+        if sys.platform == "darwin":
+            subprocess.check_call(["open", url])
+        elif sys.platform.startswith("linux"):
+            subprocess.check_call(["xdg-open", url])
+        elif sys.platform.startswith("win"):
+            subprocess.check_call(["start", url])
+    except Exception:
+        messagebox.showerror("Error", f"Could not open URL: {url}")
 
 
 class LinkApp:
@@ -68,53 +54,53 @@ class LinkApp:
         container = tk.Frame(self.root)
         container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        self.listbox = tk.Listbox(container, width=50, height=15)
+        self.listbox = tk.Listbox(container, width=50, height=15, selectmode=tk.EXTENDED)
         self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar = tk.Scrollbar(
-            container, orient=tk.VERTICAL, command=self.listbox.yview
-        )
+        
+        scrollbar = tk.Scrollbar(container, orient=tk.VERTICAL, command=self.listbox.yview)
         scrollbar.pack(side=tk.LEFT, fill=tk.Y)
         self.listbox.config(yscrollcommand=scrollbar.set)
 
-        # Bind double-click to open link
+        # Bind double-click to open link and Delete key to delete link
         self.listbox.bind("<Double-Button-1>", self._open_selected)
-        # Bind Delete key to delete link
         self.listbox.bind("<BackSpace>", self._delete_selected)
 
         btn_frame = tk.Frame(self.root)
         btn_frame.pack(fill=tk.X, padx=10, pady=5)
 
-        tk.Button(btn_frame, text="Mass Add Links", command=self._mass_add_links).pack(
-            side=tk.LEFT, padx=5
-        )
-        tk.Button(btn_frame, text="Edit Name", command=self._edit_name).pack(
-            side=tk.LEFT, padx=5
-        )
-        tk.Button(btn_frame, text="Toggle Favorite", command=self._toggle_fav).pack(
-            side=tk.LEFT, padx=5
-        )
-        tk.Button(btn_frame, text="Open Random", command=self._open_random).pack(
-            side=tk.LEFT, padx=5
-        )
+        buttons = [
+            ("Mass Add Links", self._mass_add_links),
+            ("Edit Name", self._edit_name),
+            ("Toggle Favorite", self._toggle_fav),
+            ("Open Random", self._open_random)
+        ]
+        
+        for text, command in buttons:
+            tk.Button(btn_frame, text=text, command=command).pack(side=tk.LEFT, padx=5)
 
     def _refresh_list(self):
-        print("Refreshing list display.")
         self.listbox.delete(0, tk.END)
         for link in self.links:
             prefix = "★ " if link.get("favorite") else "  "
-            self.listbox.insert(tk.END, f"{prefix}{link.get('name')}")
+            name = link.get('name')
+            url = link.get('url')
+            
+            display_text = f"{prefix}{name}" if name == url else f"{prefix}{name} ({url})"
+            self.listbox.insert(tk.END, display_text)
 
     def _mass_add_links(self):
-        print("Opening Mass Add Links dialog.")
         dialog = tk.Toplevel(self.root)
         dialog.title("Add Links")
+        dialog.geometry("400x300")
 
         tk.Label(dialog, text="Paste one URL per line:").pack(padx=10, pady=(10, 0))
 
         text_frame = tk.Frame(dialog)
         text_frame.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
+        
         text_widget = tk.Text(text_frame, width=50, height=10)
         text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
         scroll = tk.Scrollbar(text_frame, orient=tk.VERTICAL, command=text_widget.yview)
         scroll.pack(side=tk.LEFT, fill=tk.Y)
         text_widget.config(yscrollcommand=scroll.set)
@@ -125,106 +111,84 @@ class LinkApp:
         def on_ok():
             raw = text_widget.get("1.0", tk.END).strip()
             lines = [line.strip() for line in raw.splitlines() if line.strip()]
-            print(f"Mass add: found {len(lines)} lines to add.")
             for url in lines:
-                print(f"Adding link: {url}")
                 self.links.append({"name": url, "url": url, "favorite": False})
             save_links(self.links)
             self._refresh_list()
             dialog.destroy()
 
-        def on_cancel():
-            print("Mass add canceled.")
-            dialog.destroy()
+        tk.Button(btn_frame, text="OK", command=on_ok, width=10).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Cancel", command=dialog.destroy, width=10).pack(side=tk.LEFT, padx=5)
 
-        tk.Button(btn_frame, text="OK", command=on_ok, width=10).pack(
-            side=tk.LEFT, padx=5
-        )
-        tk.Button(btn_frame, text="Cancel", command=on_cancel, width=10).pack(
-            side=tk.LEFT, padx=5
-        )
-
-        self.root.update_idletasks()
-        x = (
-            self.root.winfo_x()
-            + (self.root.winfo_width() // 2)
-            - (dialog.winfo_reqwidth() // 2)
-        )
-        y = (
-            self.root.winfo_y()
-            + (self.root.winfo_height() // 2)
-            - (dialog.winfo_reqheight() // 2)
-        )
-        dialog.geometry(f"+{x}+{y}")
+        # Center dialog on parent
         dialog.transient(self.root)
         dialog.grab_set()
         dialog.focus_set()
 
     def _edit_name(self):
-        idx = self._selected_index()
-        if idx is None:
-            print("Edit Name: no selection.")
+        indices = self._selected_indices()
+        if not indices:
             return
+        if len(indices) > 1:
+            messagebox.showinfo("Info", "Please select only one item to edit its name.")
+            return
+        
+        idx = indices[0]
         current = self.links[idx]["name"]
-        new_name = simpledialog.askstring(
-            "Edit Name", "New name:", initialvalue=current
-        )
-        if not new_name:
-            print("Edit Name: canceled or empty input.")
-            return
-        print(f"Changing name from '{current}' to '{new_name}'.")
-        self.links[idx]["name"] = new_name
-        save_links(self.links)
-        self._refresh_list()
+        new_name = simpledialog.askstring("Edit Name", "New name:", initialvalue=current)
+        if new_name:
+            self.links[idx]["name"] = new_name
+            save_links(self.links)
+            self._refresh_list()
 
     def _toggle_fav(self):
-        idx = self._selected_index()
-        if idx is None:
-            print("Toggle Favorite: no selection.")
+        indices = self._selected_indices()
+        if not indices:
             return
-        link = self.links[idx]
-        link["favorite"] = not link.get("favorite", False)
-        print(f"Toggling favorite for '{link['name']}' to {link['favorite']}.")
+        
+        for idx in indices:
+            link = self.links[idx]
+            link["favorite"] = not link.get("favorite", False)
+        
         save_links(self.links)
         self._refresh_list()
 
     def _open_random(self):
-        print("Open Random called.")
         if not self.links:
-            print("Open Random: no links available.")
             messagebox.showinfo("Info", "No links available.")
             return
 
         choice = random.choice(self.links)
-        url = choice["url"]
-        print(f"Randomly selected: '{choice['name']}' -> {url!r}")
-        open_in_browser(url)
+        open_in_browser(choice["url"])
 
     def _open_selected(self, event):
-        idx = self._selected_index()
-        if idx is None:
-            print("Open Selected: no selection on double-click.")
+        indices = self._selected_indices()
+        if not indices:
             return
 
-        link = self.links[idx]
-        url = link["url"]
-        print(f"Opening selected link: '{link['name']}' -> {url!r}")
-        open_in_browser(url)
+        for idx in indices:
+            open_in_browser(self.links[idx]["url"])
 
     def _delete_selected(self, event):
-        idx = self._selected_index()
-        if idx is None:
-            print("Delete: no selection to delete.")
+        indices = self._selected_indices()
+        if not indices:
             return
-        link = self.links[idx]
-        print(f"Deleting selected link: '{link['name']}' -> {link['url']}")
-        del self.links[idx]
+        
+        if len(indices) > 1:
+            if not messagebox.askyesno("Confirm Deletion", 
+                                     f"Are you sure you want to delete {len(indices)} selected link(s)?"):
+                return
+        
+        # Delete from highest index to lowest to avoid index shifting issues
+        for idx in sorted(indices, reverse=True):
+            del self.links[idx]
+        
         save_links(self.links)
         self._refresh_list()
 
-    def _selected_index(self):
-        sel = self.listbox.curselection()
-        return sel[0] if sel else None
+    def _selected_indices(self):
+        """Returns a list of all selected indices"""
+        return list(self.listbox.curselection())
 
 
 if __name__ == "__main__":
