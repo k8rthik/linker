@@ -1,0 +1,65 @@
+# Link Manager - Requirements
+# 
+# This project primarily uses Python standard library modules.
+# The main GUI framework (tkinter) should be included with Python,
+# but may need separate installation on some systems.
+
+# Core Dependencies
+# =================
+# tkinter - GUI framework (usually included with Python)
+# Note: On macOS with Homebrew Python, you may need to install python-tk:
+# brew install python-tk
+# 
+# All other core dependencies are part of Python standard library:
+# - json, os, sys, subprocess, datetime, random, webbrowser
+# - abc, typing, unittest.mock
+
+# Development Dependencies
+# ========================
+
+# Testing framework (optional but recommended)
+pytest>=7.0.0
+pytest-cov>=4.0.0
+
+# Type checking (optional but recommended for development)
+mypy>=1.0.0
+
+# Code formatting (optional)
+black>=22.0.0
+isort>=5.10.0
+
+# Linting (optional)
+flake8>=5.0.0
+pylint>=2.15.0
+
+# Documentation (optional)
+sphinx>=5.0.0
+
+# Alternative GUI frameworks (optional alternatives to tkinter)
+# =============================================================
+# Uncomment if you want to create alternative UI implementations
+
+# PyQt5>=5.15.0  # Alternative GUI framework
+# PySide2>=5.15.0  # Alternative GUI framework  
+# customtkinter>=5.0.0  # Modern tkinter replacement
+
+# Data handling enhancements (optional)
+# =====================================
+# Uncomment if you want to add database support or other data formats
+
+# SQLAlchemy>=1.4.0  # For database repository implementation
+# pandas>=1.5.0  # For data analysis and CSV export
+# openpyxl>=3.0.0  # For Excel export functionality
+
+# Web scraping enhancements (optional)
+# ====================================
+# For enhancing the existing scraper.py
+
+requests>=2.28.0
+beautifulsoup4>=4.11.0
+lxml>=4.9.0
+
+# Utilities (optional)
+# ===================
+# python-dateutil>=2.8.0  # Enhanced date parsing
+# validators>=0.20.0  # URL validation 

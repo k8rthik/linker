@@ -151,8 +151,8 @@ class LinkApp:
         btn_frame.pack(fill=tk.X, padx=10, pady=5)
 
         buttons = [
-            ("Mass Add Links", self._mass_add_links),
-            ("Edit Name", self._edit_name),
+            ("Add Links", self._mass_add_links),
+            ("Edit", self._edit_link),
             ("Toggle Favorite", self._toggle_fav),
             ("Mark Read/Unread", self._toggle_read_status),
             ("Open Random", self._open_random),
@@ -273,23 +273,150 @@ class LinkApp:
         dialog.grab_set()
         dialog.focus_set()
 
-    def _edit_name(self):
+    def _edit_link(self):
         indices = self._selected_indices()
         if not indices:
             return
         if len(indices) > 1:
-            messagebox.showinfo("Info", "Please select only one item to edit its name.")
+            messagebox.showinfo("Info", "Please select only one item to edit.")
             return
         
         idx = indices[0]
-        current = self.links[idx]["name"]
-        new_name = simpledialog.askstring("Edit Name", "New name:", initialvalue=current)
-        if new_name:
-            self.links[idx]["name"] = new_name
+        link = self.links[idx]
+        
+        # Create edit dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Edit Link")
+        dialog.geometry("500x500")
+        dialog.resizable(True, True)
+        
+        # Main frame with padding
+        main_frame = tk.Frame(dialog)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        # Name field
+        tk.Label(main_frame, text="Name:", font=("TkDefaultFont", 9, "bold")).grid(row=0, column=0, sticky="w", pady=(0, 5))
+        name_var = tk.StringVar(value=link.get("name", ""))
+        name_entry = tk.Entry(main_frame, textvariable=name_var, width=60)
+        name_entry.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 15))
+        
+        # URL field
+        tk.Label(main_frame, text="URL:", font=("TkDefaultFont", 9, "bold")).grid(row=2, column=0, sticky="w", pady=(0, 5))
+        url_var = tk.StringVar(value=link.get("url", ""))
+        url_entry = tk.Entry(main_frame, textvariable=url_var, width=60)
+        url_entry.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 15))
+        
+        # Favorite checkbox
+        favorite_var = tk.BooleanVar(value=link.get("favorite", False))
+        favorite_check = tk.Checkbutton(main_frame, text="Favorite", variable=favorite_var, font=("TkDefaultFont", 9, "bold"))
+        favorite_check.grid(row=4, column=0, sticky="w", pady=(0, 15))
+        
+        # Date Added field
+        tk.Label(main_frame, text="Date Added:", font=("TkDefaultFont", 9, "bold")).grid(row=5, column=0, sticky="w", pady=(0, 5))
+        date_added_var = tk.StringVar(value=link.get("date_added", ""))
+        date_added_entry = tk.Entry(main_frame, textvariable=date_added_var, width=30)
+        date_added_entry.grid(row=6, column=0, sticky="ew", pady=(0, 5))
+        
+        # Date format help text
+        tk.Label(main_frame, text="Format: YYYY-MM-DDTHH:MM:SS (ISO format)", 
+                font=("TkDefaultFont", 8), fg="gray").grid(row=7, column=0, sticky="w", pady=(0, 15))
+        
+        # Last Opened field
+        tk.Label(main_frame, text="Last Opened:", font=("TkDefaultFont", 9, "bold")).grid(row=8, column=0, sticky="w", pady=(0, 5))
+        last_opened_var = tk.StringVar(value=link.get("last_opened", "") or "")
+        last_opened_entry = tk.Entry(main_frame, textvariable=last_opened_var, width=30)
+        last_opened_entry.grid(row=9, column=0, sticky="ew", pady=(0, 5))
+        
+        # Last opened help text
+        tk.Label(main_frame, text="Format: YYYY-MM-DDTHH:MM:SS (leave empty for 'never opened')", 
+                font=("TkDefaultFont", 8), fg="gray").grid(row=10, column=0, sticky="w", pady=(0, 20))
+        
+        # Configure grid weights
+        main_frame.columnconfigure(0, weight=1)
+        
+        # Button frame
+        btn_frame = tk.Frame(main_frame)
+        btn_frame.grid(row=11, column=0, columnspan=2, pady=(10, 0))
+        
+        def validate_datetime(date_str):
+            """Validate datetime string format"""
+            if not date_str.strip():
+                return True, None  # Empty string is valid (means None)
+            try:
+                datetime.fromisoformat(date_str.strip())
+                return True, date_str.strip()
+            except ValueError:
+                return False, None
+        
+        def on_save():
+            # Validate inputs
+            name = name_var.get().strip()
+            url = url_var.get().strip()
+            
+            if not name:
+                messagebox.showerror("Error", "Name cannot be empty.")
+                name_entry.focus()
+                return
+            
+            if not url:
+                messagebox.showerror("Error", "URL cannot be empty.")
+                url_entry.focus()
+                return
+            
+            # Validate date_added
+            date_added_valid, date_added_value = validate_datetime(date_added_var.get())
+            if not date_added_valid:
+                messagebox.showerror("Error", "Invalid Date Added format. Use YYYY-MM-DDTHH:MM:SS or leave empty.")
+                date_added_entry.focus()
+                return
+            
+            # Validate last_opened
+            last_opened_valid, last_opened_value = validate_datetime(last_opened_var.get())
+            if not last_opened_valid:
+                messagebox.showerror("Error", "Invalid Last Opened format. Use YYYY-MM-DDTHH:MM:SS or leave empty.")
+                last_opened_entry.focus()
+                return
+            
+            # Update the link
+            self.links[idx]["name"] = name
+            self.links[idx]["url"] = url
+            self.links[idx]["favorite"] = favorite_var.get()
+            
+            # Handle date fields - use original if empty, otherwise use new value
+            if date_added_value:
+                self.links[idx]["date_added"] = date_added_value
+            elif "date_added" not in self.links[idx]:
+                self.links[idx]["date_added"] = datetime.now().isoformat()
+            
+            # Handle last_opened - None if empty, otherwise use the value
+            self.links[idx]["last_opened"] = last_opened_value
+            
             save_links(self.links)
             self._refresh_list()
-            # Restore selection
             self._restore_selection(indices)
+            dialog.destroy()
+        
+        def on_cancel():
+            dialog.destroy()
+        
+        # Buttons
+        save_btn = tk.Button(btn_frame, text="Save", command=on_save, width=10)
+        save_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        cancel_btn = tk.Button(btn_frame, text="Cancel", command=on_cancel, width=10)
+        cancel_btn.pack(side=tk.LEFT)
+        
+        # Center dialog on parent and set focus
+        dialog.transient(self.root)
+        dialog.grab_set()
+        name_entry.focus()
+        name_entry.select_range(0, tk.END)
+        
+        # Center the dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
 
     def _toggle_fav(self):
         indices = self._selected_indices()

@@ -1,0 +1,14 @@
+# Minimal requirements for Link Manager
+# =====================================
+# 
+# This file contains only the essential external dependencies.
+# The core application uses Python standard library modules.
+
+# Web scraping dependencies (for scraper.py)
+requests>=2.28.0
+beautifulsoup4>=4.11.0
+lxml>=4.9.0
+
+# Note: tkinter is required for the GUI but should be included with Python.
+# If you get "ModuleNotFoundError: No module named '_tkinter'" on macOS:
+# brew install python-tk 
