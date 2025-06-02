@@ -22,40 +22,43 @@ Features:
 """
 
 import tkinter as tk
+
+from controllers.profile_controller import ProfileController
 from repositories.profile_repository import JsonProfileRepository
 from services.browser_service import SystemBrowserService
 from services.profile_service import ProfileService
-from controllers.profile_controller import ProfileController
 
 
 class LinkManagerApp:
     """Main application class that sets up dependency injection with profile support."""
-    
+
     def __init__(self):
         self._root = tk.Tk()
         self._setup_dependencies()
         self._setup_window()
         self._create_controller()
-    
+
     def _setup_dependencies(self) -> None:
         """Setup dependency injection container."""
         # Create repository (data layer) - will auto-migrate from links.json if needed
         self._profile_repository = JsonProfileRepository("profiles.json", "links.json")
-        
+
         # Create services (business logic layer)
         self._browser_service = SystemBrowserService()
-        self._profile_service = ProfileService(self._profile_repository, self._browser_service)
-    
+        self._profile_service = ProfileService(
+            self._profile_repository, self._browser_service
+        )
+
     def _setup_window(self) -> None:
         """Setup main window properties."""
-        self._root.title("linker - Profile Manager")
+        self._root.title("linker")
         self._root.geometry("900x700")
         self._root.minsize(700, 500)
-    
+
     def _create_controller(self) -> None:
         """Create the main controller (presentation layer)."""
         self._controller = ProfileController(self._root, self._profile_service)
-    
+
     def run(self) -> None:
         """Start the application."""
         self._root.mainloop()
@@ -73,3 +76,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
