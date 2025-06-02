@@ -169,11 +169,12 @@ class LinkListView:
     def focus(self) -> None:
         """Give focus to the tree view."""
         self._tree.focus_set()
-        # If there's no selection and there are items, select the first one
-        if not self._tree.selection() and self._tree.get_children():
-            first_item = self._tree.get_children()[0]
-            self._tree.selection_set(first_item)
-            self._tree.focus(first_item)
+        # Only select the first item if there are no items at all and this is the initial focus
+        # This prevents the bug where returning from browser causes unwanted selection
+        # if not self._tree.selection() and self._tree.get_children():
+        #     first_item = self._tree.get_children()[0]
+        #     self._tree.selection_set(first_item)
+        #     self._tree.focus(first_item)
     
     def get_current_item(self) -> Optional[str]:
         """Get the currently focused item."""

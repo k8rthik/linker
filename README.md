@@ -157,7 +157,8 @@ python main.py
 - **Ctrl/Cmd + D**: Toggle favorite status of selected links
 - **Ctrl/Cmd + E**: Toggle read/unread status of selected links
 - **Ctrl/Cmd + R**: Open random link
-- **Space**: Open random unread link
+- **Ctrl/Cmd + U**: Open random unread link
+- **Space**: Open selected links
 - **Enter**: Edit selected link
 - **Double-click**: Open links
 - **Backspace**: Delete selected links

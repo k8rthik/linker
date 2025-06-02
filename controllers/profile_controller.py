@@ -90,7 +90,7 @@ class ProfileController:
         # Link list view callbacks
         self._link_list_view.set_double_click_callback(self._on_links_double_clicked)
         self._link_list_view.set_delete_key_callback(self._on_delete_key_pressed)
-        self._link_list_view.set_space_key_callback(self._open_random_unread)
+        self._link_list_view.set_space_key_callback(self._open_selected)
         self._link_list_view.set_sort_callback(self._on_sort_requested)
     
     def _setup_keyboard_shortcuts(self) -> None:
@@ -108,6 +108,7 @@ class ProfileController:
             self._root.bind("<Command-d>", lambda e: self._toggle_favorite())
             self._root.bind("<Command-e>", lambda e: self._toggle_read_status())
             self._root.bind("<Command-r>", lambda e: self._open_random())
+            self._root.bind("<Command-u>", lambda e: self._open_random_unread())
             self._root.bind("<Command-l>", lambda e: self._focus_table())
             self._root.bind("<Command-p>", lambda e: self._on_manage_profiles())
         else:
@@ -115,6 +116,7 @@ class ProfileController:
             self._root.bind("<Control-d>", lambda e: self._toggle_favorite())
             self._root.bind("<Control-e>", lambda e: self._toggle_read_status())
             self._root.bind("<Control-r>", lambda e: self._open_random())
+            self._root.bind("<Control-u>", lambda e: self._open_random_unread())
             self._root.bind("<Control-l>", lambda e: self._focus_table())
             self._root.bind("<Control-p>", lambda e: self._on_manage_profiles())
         
@@ -370,3 +372,11 @@ class ProfileController:
         
         if indices:
             self._profile_service.open_links(indices)
+
+    def _open_selected(self) -> None:
+        """Open selected links."""
+        indices = self._get_selected_indices()
+        if indices:
+            self._profile_service.open_links(indices)
+        else:
+            messagebox.showinfo("Info", "Please select one or more links to open.")

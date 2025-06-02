@@ -78,7 +78,7 @@ class LinkController:
         # Link list view callbacks
         self._link_list_view.set_double_click_callback(self._on_links_double_clicked)
         self._link_list_view.set_delete_key_callback(self._on_delete_key_pressed)
-        self._link_list_view.set_space_key_callback(self._open_random_unread)
+        self._link_list_view.set_space_key_callback(self._open_selected)
         self._link_list_view.set_sort_callback(self._on_sort_requested)
     
     def _setup_keyboard_shortcuts(self) -> None:
@@ -96,12 +96,14 @@ class LinkController:
             self._root.bind("<Command-d>", lambda e: self._toggle_favorite())
             self._root.bind("<Command-e>", lambda e: self._toggle_read_status())
             self._root.bind("<Command-r>", lambda e: self._open_random())
+            self._root.bind("<Command-u>", lambda e: self._open_random_unread())
             self._root.bind("<Command-l>", lambda e: self._focus_table())
         else:
             # Windows/Linux shortcuts (using Ctrl key)
             self._root.bind("<Control-d>", lambda e: self._toggle_favorite())
             self._root.bind("<Control-e>", lambda e: self._toggle_read_status())
             self._root.bind("<Control-r>", lambda e: self._open_random())
+            self._root.bind("<Control-u>", lambda e: self._open_random_unread())
             self._root.bind("<Control-l>", lambda e: self._focus_table())
         
         # Platform-independent shortcuts
@@ -281,3 +283,11 @@ class LinkController:
                 return
         
         self._link_service.open_all_filtered_links(self._current_filtered_links)
+
+    def _open_selected(self) -> None:
+        """Open selected links."""
+        indices = self._get_selected_indices()
+        if indices:
+            self._link_service.open_links_batch(indices)
+        else:
+            messagebox.showinfo("Info", "Please select one or more links to open.")
