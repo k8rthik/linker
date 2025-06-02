@@ -10,12 +10,12 @@ linker is a lightweight desktop application that helps you organize and manage y
 
 ## Key Features
 
-### asy Link Management
+### Link Management
 - **Batch Add**: Add multiple URLs at once by pasting them into a single dialog
 - **Quick Edit**: Modify link names, URLs, and metadata with a simple interface
 - **Smart Validation**: Automatic URL validation and formatting
 
-### Powerful Search & Organization
+### Search & Organization
 - **Real-time Search**: Instantly filter links as you type
 - **Smart Sorting**: Click any column header to sort by name, URL, date added, or last opened
 - **Favorites System**: Mark important links for quick access
@@ -26,7 +26,7 @@ linker is a lightweight desktop application that helps you organize and manage y
 - **Bulk Operations**: Select multiple links to open, mark as favorite, or delete in batch
 - **Status Management**: Toggle read/unread status to track your progress through lists
 
-### Keyboard-First Design
+### Keyboard-First Design (sort of)
 - **Quick Access**: Extensive keyboard shortcuts for power users
 - **Seamless Navigation**: Tab between search and list, use arrow keys for selection
 - **Context-Aware Actions**: Escape key behavior changes based on current focus
