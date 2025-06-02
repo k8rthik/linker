@@ -64,6 +64,16 @@ class LinkListView:
         self._tree.bind("<Double-Button-1>", self._on_double_click_event)
         self._tree.bind("<BackSpace>", self._on_delete_key_event)
         self._tree.bind("<KeyPress-space>", self._on_space_key_event)
+        
+        # Bind arrow key navigation
+        self._tree.bind("<Up>", self._on_arrow_up)
+        self._tree.bind("<Down>", self._on_arrow_down)
+        self._tree.bind("<Left>", self._on_arrow_left)
+        self._tree.bind("<Right>", self._on_arrow_right)
+        self._tree.bind("<Home>", self._on_home_key)
+        self._tree.bind("<End>", self._on_end_key)
+        self._tree.bind("<Prior>", self._on_page_up)  # Page Up
+        self._tree.bind("<Next>", self._on_page_down)  # Page Down
     
     def set_links(self, links: List[Link], filtered_links: List[Link]) -> None:
         """Set the links to display."""
@@ -153,11 +163,72 @@ class LinkListView:
     def bind_keyboard_shortcuts(self, root: tk.Tk) -> None:
         """Bind keyboard shortcuts."""
         # Note: Escape key is handled by the controller based on focus
+        # Arrow keys are handled directly by the tree widget
         pass
     
     def focus(self) -> None:
         """Give focus to the tree view."""
         self._tree.focus_set()
+        # If there's no selection and there are items, select the first one
+        if not self._tree.selection() and self._tree.get_children():
+            first_item = self._tree.get_children()[0]
+            self._tree.selection_set(first_item)
+            self._tree.focus(first_item)
+    
+    def get_current_item(self) -> Optional[str]:
+        """Get the currently focused item."""
+        return self._tree.focus()
+    
+    def get_visible_items(self) -> List[str]:
+        """Get all visible items in the tree."""
+        return list(self._tree.get_children())
+    
+    def select_item(self, item_id: str, extend: bool = False) -> None:
+        """Select a specific item."""
+        if self._tree.exists(item_id):
+            if extend:
+                self._tree.selection_add(item_id)
+            else:
+                # Clear all selections and select only this item
+                self._tree.selection_set(item_id)
+            self._tree.focus(item_id)
+            self._tree.see(item_id)
+    
+    def navigate_to_item(self, direction: str) -> None:
+        """Navigate to an item in the specified direction."""
+        current = self._tree.focus()
+        items = self.get_visible_items()
+        
+        if not items:
+            return
+        
+        if not current or current not in items:
+            # No current selection, select first item
+            self.select_item(items[0])
+            return
+        
+        current_index = items.index(current)
+        target_item = None
+        
+        if direction == "up" and current_index > 0:
+            target_item = items[current_index - 1]
+        elif direction == "down" and current_index < len(items) - 1:
+            target_item = items[current_index + 1]
+        elif direction == "home":
+            target_item = items[0]
+        elif direction == "end":
+            target_item = items[-1]
+        elif direction == "page_up":
+            # Move up by ~10 items or to the beginning
+            new_index = max(0, current_index - 10)
+            target_item = items[new_index]
+        elif direction == "page_down":
+            # Move down by ~10 items or to the end
+            new_index = min(len(items) - 1, current_index + 10)
+            target_item = items[new_index]
+        
+        if target_item:
+            self.select_item(target_item)
     
     # Event handlers
     def _on_double_click_event(self, event) -> None:
@@ -188,6 +259,47 @@ class LinkListView:
             if self._sort_column == column:
                 reverse = not self._sort_reverse
             self._on_sort(column, reverse)
+    
+    # Arrow key event handlers
+    def _on_arrow_up(self, event) -> str:
+        """Handle up arrow key."""
+        self.navigate_to_item("up")
+        return "break"  # Prevent default behavior
+    
+    def _on_arrow_down(self, event) -> str:
+        """Handle down arrow key."""
+        self.navigate_to_item("down")
+        return "break"  # Prevent default behavior
+    
+    def _on_arrow_left(self, event) -> str:
+        """Handle left arrow key."""
+        # Prevent default horizontal navigation
+        return "break"
+    
+    def _on_arrow_right(self, event) -> str:
+        """Handle right arrow key."""
+        # Prevent default horizontal navigation
+        return "break"
+    
+    def _on_home_key(self, event) -> str:
+        """Handle Home key."""
+        self.navigate_to_item("home")
+        return "break"
+    
+    def _on_end_key(self, event) -> str:
+        """Handle End key."""
+        self.navigate_to_item("end")
+        return "break"
+    
+    def _on_page_up(self, event) -> str:
+        """Handle Page Up key."""
+        self.navigate_to_item("page_up")
+        return "break"
+    
+    def _on_page_down(self, event) -> str:
+        """Handle Page Down key."""
+        self.navigate_to_item("page_down")
+        return "break"
     
     # Callback setters
     def set_double_click_callback(self, callback: Callable[[List[int]], None]) -> None:

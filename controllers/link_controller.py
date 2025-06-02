@@ -94,14 +94,17 @@ class LinkController:
             self._root.bind("<Command-d>", lambda e: self._toggle_favorite())
             self._root.bind("<Command-e>", lambda e: self._toggle_read_status())
             self._root.bind("<Command-r>", lambda e: self._open_random())
+            self._root.bind("<Command-l>", lambda e: self._focus_table())
         else:
             # Windows/Linux shortcuts (using Ctrl key)
             self._root.bind("<Control-d>", lambda e: self._toggle_favorite())
             self._root.bind("<Control-e>", lambda e: self._toggle_read_status())
             self._root.bind("<Control-r>", lambda e: self._open_random())
+            self._root.bind("<Control-l>", lambda e: self._focus_table())
         
         # Platform-independent shortcuts
         self._root.bind("<Return>", lambda e: self._edit_link())
+        self._root.bind("<Tab>", self._on_tab_pressed)
     
     def _refresh_view(self) -> None:
         """Refresh the view with current data."""
@@ -123,6 +126,10 @@ class LinkController:
         self._link_list_view.set_links(all_links, filtered_links)
         self._link_list_view.set_sort_column(self._current_sort_column, self._current_sort_reverse)
         self._search_bar.set_result_count(len(filtered_links), len(all_links))
+        
+        # Give focus to table if it's the first time or no search is active
+        if not self._current_search_term and not self._search_bar.has_focus():
+            self._link_list_view.focus()
     
     def _get_selected_indices(self) -> List[int]:
         """Get currently selected link indices."""
@@ -241,3 +248,17 @@ class LinkController:
             self._link_list_view.select_and_scroll_to(link_index)
         else:
             messagebox.showinfo("Info", "No unread links available.")
+    
+    def _focus_table(self) -> None:
+        """Give focus to the link table."""
+        self._link_list_view.focus()
+    
+    def _on_tab_pressed(self, event) -> str:
+        """Handle Tab key to switch focus between search bar and table."""
+        if self._search_bar.has_focus():
+            # Switch from search bar to table
+            self._link_list_view.focus()
+        else:
+            # Switch from table to search bar
+            self._search_bar.focus()
+        return "break"  # Prevent default tab behavior
