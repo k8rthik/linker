@@ -18,6 +18,7 @@ class LinkController:
         self._current_search_term = ""
         self._current_sort_column: Optional[str] = None
         self._current_sort_reverse = False
+        self._current_filtered_links: List[Link] = []
         
         # UI components
         self._search_bar: Optional[SearchBar] = None
@@ -72,6 +73,7 @@ class LinkController:
         # Search bar callbacks
         self._search_bar.set_search_change_callback(self._on_search_changed)
         self._search_bar.set_clear_callback(self._on_search_cleared)
+        self._search_bar.set_open_all_callback(self._on_open_all_clicked)
         
         # Link list view callbacks
         self._link_list_view.set_double_click_callback(self._on_links_double_clicked)
@@ -121,6 +123,9 @@ class LinkController:
             filtered_links = self._link_service.sort_links(
                 filtered_links, self._current_sort_column, self._current_sort_reverse
             )
+        
+        # Store current filtered links
+        self._current_filtered_links = filtered_links
         
         # Update UI components
         self._link_list_view.set_links(all_links, filtered_links)
@@ -262,3 +267,17 @@ class LinkController:
             # Switch from table to search bar
             self._search_bar.focus()
         return "break"  # Prevent default tab behavior
+
+    def _on_open_all_clicked(self) -> None:
+        """Handle open all button click."""
+        if not self._current_filtered_links:
+            messagebox.showinfo("No Links", "No links to open.")
+            return
+        
+        link_count = len(self._current_filtered_links)
+        if link_count > 10:
+            if not messagebox.askyesno("Confirm Open All", 
+                                     f"Are you sure you want to open {link_count} links? This might open many browser tabs."):
+                return
+        
+        self._link_service.open_all_filtered_links(self._current_filtered_links)

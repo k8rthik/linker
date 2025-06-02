@@ -142,6 +142,18 @@ class LinkService:
                     self._repository.update(link_id, link)
         self._notify_observers()
     
+    def open_all_filtered_links(self, filtered_links: List[Link]) -> None:
+        """Open all links from a filtered list."""
+        all_links = self.get_all_links()
+        for link in filtered_links:
+            if link in all_links:
+                link_id = all_links.index(link)
+                success = self._browser_service.open_url(link.get_formatted_url())
+                if success:
+                    link.mark_as_opened()
+                    self._repository.update(link_id, link)
+        self._notify_observers()
+    
     def open_random_link(self) -> Optional[int]:
         """Open a random link and return its index."""
         links = self.get_all_links()

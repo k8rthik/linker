@@ -10,6 +10,7 @@ class SearchBar:
         self._parent = parent
         self._on_search_change: Optional[Callable[[str], None]] = None
         self._on_clear: Optional[Callable[[], None]] = None
+        self._on_open_all: Optional[Callable[[], None]] = None
         self._create_components()
     
     def _create_components(self) -> None:
@@ -31,6 +32,10 @@ class SearchBar:
         # Clear button
         self._clear_btn = tk.Button(self._frame, text="Clear", command=self._on_clear_clicked)
         self._clear_btn.pack(side=tk.LEFT, padx=(0, 5))
+        
+        # Open All button
+        self._open_all_btn = tk.Button(self._frame, text="Open All", command=self._on_open_all_clicked)
+        self._open_all_btn.pack(side=tk.LEFT, padx=(0, 5))
         
         # Result count label
         self._result_label = tk.Label(self._frame, text="")
@@ -81,6 +86,11 @@ class SearchBar:
         if self._on_clear:
             self._on_clear()
     
+    def _on_open_all_clicked(self) -> None:
+        """Handle open all button click."""
+        if self._on_open_all:
+            self._on_open_all()
+    
     def set_search_change_callback(self, callback: Callable[[str], None]) -> None:
         """Set callback for search term changes."""
         self._on_search_change = callback
@@ -88,6 +98,10 @@ class SearchBar:
     def set_clear_callback(self, callback: Callable[[], None]) -> None:
         """Set callback for clear action."""
         self._on_clear = callback
+    
+    def set_open_all_callback(self, callback: Callable[[], None]) -> None:
+        """Set callback for open all action."""
+        self._on_open_all = callback
 
     def has_focus(self) -> bool:
         """Check if the search entry has focus."""
