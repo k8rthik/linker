@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Refactored Link Manager Application
+Refactored Link Manager Application with Profiles
 
 This application follows SOLID principles and design patterns:
 - Single Responsibility Principle: Each class has one responsibility
@@ -14,17 +14,22 @@ Design Patterns Used:
 - Observer Pattern: UI updates when data changes
 - MVC Pattern: Separation of concerns
 - Dependency Injection: Loose coupling
+
+Features:
+- Profile Management: Create, switch between, and manage multiple profiles
+- Each profile contains its own separate set of links
+- Automatic migration from legacy links.json format
 """
 
 import tkinter as tk
-from repositories.link_repository import JsonLinkRepository
+from repositories.profile_repository import JsonProfileRepository
 from services.browser_service import SystemBrowserService
-from services.link_service import LinkService
-from controllers.link_controller import LinkController
+from services.profile_service import ProfileService
+from controllers.profile_controller import ProfileController
 
 
 class LinkManagerApp:
-    """Main application class that sets up dependency injection."""
+    """Main application class that sets up dependency injection with profile support."""
     
     def __init__(self):
         self._root = tk.Tk()
@@ -34,22 +39,22 @@ class LinkManagerApp:
     
     def _setup_dependencies(self) -> None:
         """Setup dependency injection container."""
-        # Create repository (data layer)
-        self._repository = JsonLinkRepository("links.json")
+        # Create repository (data layer) - will auto-migrate from links.json if needed
+        self._profile_repository = JsonProfileRepository("profiles.json", "links.json")
         
         # Create services (business logic layer)
         self._browser_service = SystemBrowserService()
-        self._link_service = LinkService(self._repository, self._browser_service)
+        self._profile_service = ProfileService(self._profile_repository, self._browser_service)
     
     def _setup_window(self) -> None:
         """Setup main window properties."""
-        self._root.title("linker")
-        self._root.geometry("800x600")
-        self._root.minsize(600, 400)
+        self._root.title("linker - Profile Manager")
+        self._root.geometry("900x700")
+        self._root.minsize(700, 500)
     
     def _create_controller(self) -> None:
         """Create the main controller (presentation layer)."""
-        self._controller = LinkController(self._root, self._link_service)
+        self._controller = ProfileController(self._root, self._profile_service)
     
     def run(self) -> None:
         """Start the application."""
@@ -67,4 +72,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main() 
+    main()

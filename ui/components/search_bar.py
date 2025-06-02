@@ -55,7 +55,7 @@ class SearchBar:
         if self.get_search_term().strip():
             self._result_label.config(text=f"Showing {filtered_count} of {total_count} links")
         else:
-            self._result_label.config(text=f"{total_count} links")
+            self._result_label.config(text="")
     
     def focus(self) -> None:
         """Focus the search entry and select all text."""
