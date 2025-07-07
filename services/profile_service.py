@@ -188,25 +188,25 @@ class ProfileService:
         
         return filtered_links
     
-    def sort_links(self, column: str, reverse: bool = False) -> List[Link]:
-        """Sort links in the current profile by specified column."""
-        if not self._current_profile:
+    def sort_links(self, links: List[Link], column: str, reverse: bool = False) -> List[Link]:
+        """Sort links by specified column."""
+        if not links:
             return []
         
-        links = self._current_profile.links.copy()
+        sorted_links = links.copy()
         
         if column == "name":
-            links.sort(key=lambda x: x.name.lower(), reverse=reverse)
+            sorted_links.sort(key=lambda x: x.name.lower(), reverse=reverse)
         elif column == "url":
-            links.sort(key=lambda x: x.url.lower(), reverse=reverse)
+            sorted_links.sort(key=lambda x: x.url.lower(), reverse=reverse)
         elif column == "date_added":
-            links.sort(key=lambda x: x.date_added, reverse=reverse)
+            sorted_links.sort(key=lambda x: x.date_added, reverse=reverse)
         elif column == "last_opened":
-            links.sort(key=lambda x: x.last_opened or "", reverse=reverse)
+            sorted_links.sort(key=lambda x: x.last_opened or "", reverse=reverse)
         elif column == "favorite":
-            links.sort(key=lambda x: x.favorite, reverse=reverse)
+            sorted_links.sort(key=lambda x: x.favorite, reverse=reverse)
         
-        return links
+        return sorted_links
     
     def get_profile_stats(self, profile_name: Optional[str] = None) -> dict:
         """Get statistics for a profile (current profile if none specified)."""

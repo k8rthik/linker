@@ -65,7 +65,7 @@ class LinkListView:
         self._tree.bind("<BackSpace>", self._on_delete_key_event)
         self._tree.bind("<KeyPress-space>", self._on_space_key_event)
         
-        # Bind arrow key navigation
+        # Bind robust arrow key navigation
         self._tree.bind("<Up>", self._on_arrow_up)
         self._tree.bind("<Down>", self._on_arrow_down)
         self._tree.bind("<Left>", self._on_arrow_left)
@@ -74,6 +74,21 @@ class LinkListView:
         self._tree.bind("<End>", self._on_end_key)
         self._tree.bind("<Prior>", self._on_page_up)  # Page Up
         self._tree.bind("<Next>", self._on_page_down)  # Page Down
+        
+        # Bind extended selection navigation (Shift+Arrow)
+        self._tree.bind("<Shift-Up>", self._on_shift_arrow_up)
+        self._tree.bind("<Shift-Down>", self._on_shift_arrow_down)
+        self._tree.bind("<Shift-Home>", self._on_shift_home)
+        self._tree.bind("<Shift-End>", self._on_shift_end)
+        self._tree.bind("<Shift-Prior>", self._on_shift_page_up)
+        self._tree.bind("<Shift-Next>", self._on_shift_page_down)
+        
+        # Bind selection shortcuts
+        # Platform-specific Ctrl+A (Select All)
+        if sys.platform == "darwin":
+            self._tree.bind("<Command-a>", self._on_select_all)
+        else:
+            self._tree.bind("<Control-a>", self._on_select_all)
     
     def set_links(self, links: List[Link], filtered_links: List[Link]) -> None:
         """Set the links to display."""
@@ -167,14 +182,24 @@ class LinkListView:
         pass
     
     def focus(self) -> None:
-        """Give focus to the tree view."""
+        """Give focus to the tree view and ensure proper selection."""
         self._tree.focus_set()
-        # Only select the first item if there are no items at all and this is the initial focus
-        # This prevents the bug where returning from browser causes unwanted selection
-        # if not self._tree.selection() and self._tree.get_children():
-        #     first_item = self._tree.get_children()[0]
-        #     self._tree.selection_set(first_item)
-        #     self._tree.focus(first_item)
+        
+        # Ensure there's always a selection when items exist and focus is given
+        items = self.get_visible_items()
+        if items and not self._tree.selection():
+            # If no current selection and items exist, select the first item
+            self._tree.selection_set(items[0])
+            self._tree.focus(items[0])
+        elif items:
+            # If items exist but no focus item, set focus to first selected item
+            current_focus = self._tree.focus()
+            if not current_focus or current_focus not in items:
+                selected = self._tree.selection()
+                if selected:
+                    self._tree.focus(selected[0])
+                else:
+                    self._tree.focus(items[0])
     
     def get_current_item(self) -> Optional[str]:
         """Get the currently focused item."""
@@ -195,41 +220,7 @@ class LinkListView:
             self._tree.focus(item_id)
             self._tree.see(item_id)
     
-    def navigate_to_item(self, direction: str) -> None:
-        """Navigate to an item in the specified direction."""
-        current = self._tree.focus()
-        items = self.get_visible_items()
-        
-        if not items:
-            return
-        
-        if not current or current not in items:
-            # No current selection, select first item
-            self.select_item(items[0])
-            return
-        
-        current_index = items.index(current)
-        target_item = None
-        
-        if direction == "up" and current_index > 0:
-            target_item = items[current_index - 1]
-        elif direction == "down" and current_index < len(items) - 1:
-            target_item = items[current_index + 1]
-        elif direction == "home":
-            target_item = items[0]
-        elif direction == "end":
-            target_item = items[-1]
-        elif direction == "page_up":
-            # Move up by ~10 items or to the beginning
-            new_index = max(0, current_index - 10)
-            target_item = items[new_index]
-        elif direction == "page_down":
-            # Move down by ~10 items or to the end
-            new_index = min(len(items) - 1, current_index + 10)
-            target_item = items[new_index]
-        
-        if target_item:
-            self.select_item(target_item)
+
     
     # Event handlers
     def _on_double_click_event(self, event) -> None:
@@ -264,13 +255,13 @@ class LinkListView:
     # Arrow key event handlers
     def _on_arrow_up(self, event) -> str:
         """Handle up arrow key."""
-        self.navigate_to_item("up")
-        return "break"  # Prevent default behavior
+        self._navigate_to_item("up")
+        return "break"
     
     def _on_arrow_down(self, event) -> str:
         """Handle down arrow key."""
-        self.navigate_to_item("down")
-        return "break"  # Prevent default behavior
+        self._navigate_to_item("down")
+        return "break"
     
     def _on_arrow_left(self, event) -> str:
         """Handle left arrow key."""
@@ -284,22 +275,173 @@ class LinkListView:
     
     def _on_home_key(self, event) -> str:
         """Handle Home key."""
-        self.navigate_to_item("home")
+        self._navigate_to_item("home")
         return "break"
     
     def _on_end_key(self, event) -> str:
         """Handle End key."""
-        self.navigate_to_item("end")
+        self._navigate_to_item("end")
         return "break"
     
     def _on_page_up(self, event) -> str:
         """Handle Page Up key."""
-        self.navigate_to_item("page_up")
+        self._navigate_to_item("page_up")
         return "break"
     
     def _on_page_down(self, event) -> str:
         """Handle Page Down key."""
-        self.navigate_to_item("page_down")
+        self._navigate_to_item("page_down")
+        return "break"
+    
+    # Extended selection event handlers
+    def _on_shift_arrow_up(self, event) -> str:
+        """Handle Shift+Up arrow key."""
+        self._navigate_to_item("up", extend_selection=True)
+        return "break"
+    
+    def _on_shift_arrow_down(self, event) -> str:
+        """Handle Shift+Down arrow key."""
+        self._navigate_to_item("down", extend_selection=True)
+        return "break"
+    
+    def _on_shift_home(self, event) -> str:
+        """Handle Shift+Home key."""
+        items = self.get_visible_items()
+        if items:
+            current = self._tree.focus()
+            if current and current in items:
+                self._select_range(items[0], current)
+                self._tree.focus(items[0])
+                self._tree.see(items[0])
+        return "break"
+    
+    def _on_shift_end(self, event) -> str:
+        """Handle Shift+End key."""
+        items = self.get_visible_items()
+        if items:
+            current = self._tree.focus()
+            if current and current in items:
+                self._select_range(current, items[-1])
+                self._tree.focus(items[-1])
+                self._tree.see(items[-1])
+        return "break"
+    
+    def _on_shift_page_up(self, event) -> str:
+        """Handle Shift+Page Up key."""
+        self._navigate_to_item("page_up", extend_selection=True)
+        return "break"
+    
+    def _on_shift_page_down(self, event) -> str:
+        """Handle Shift+Page Down key."""
+        self._navigate_to_item("page_down", extend_selection=True)
+        return "break"
+    
+    def _get_visible_page_size(self) -> int:
+        """Calculate the number of visible items in the tree view."""
+        try:
+            # Get the visible area of the tree
+            bbox = self._tree.bbox(self._tree.get_children()[0])
+            if bbox:
+                item_height = bbox[3]  # Height of one item
+                tree_height = self._tree.winfo_height()
+                visible_count = max(1, tree_height // item_height - 1)  # -1 for partial items
+                return min(visible_count, 10)  # Cap at 10 for very large windows
+            return 10  # Fallback
+        except (IndexError, tk.TclError):
+            return 10  # Fallback when no items or tree not ready
+    
+    def _navigate_to_item(self, direction: str, extend_selection: bool = False) -> None:
+        """Navigate to an item in the specified direction with robust handling."""
+        items = self.get_visible_items()
+        
+        if not items:
+            return
+        
+        current = self._tree.focus()
+        current_selection = list(self._tree.selection())
+        
+        # If no current focus, start from first item
+        if not current or current not in items:
+            target_item = items[0]
+            if extend_selection:
+                self._tree.selection_add(target_item)
+            else:
+                self._tree.selection_set(target_item)
+            self._tree.focus(target_item)
+            self._tree.see(target_item)
+            return
+        
+        current_index = items.index(current)
+        target_item = None
+        
+        # Determine target based on direction
+        if direction == "up":
+            if current_index > 0:
+                target_item = items[current_index - 1]
+            else:
+                # At top boundary - stay at current position
+                target_item = current
+        elif direction == "down":
+            if current_index < len(items) - 1:
+                target_item = items[current_index + 1]
+            else:
+                # At bottom boundary - stay at current position
+                target_item = current
+        elif direction == "home":
+            target_item = items[0]
+        elif direction == "end":
+            target_item = items[-1]
+        elif direction == "page_up":
+            page_size = self._get_visible_page_size()
+            new_index = max(0, current_index - page_size)
+            target_item = items[new_index]
+        elif direction == "page_down":
+            page_size = self._get_visible_page_size()
+            new_index = min(len(items) - 1, current_index + page_size)
+            target_item = items[new_index]
+        
+        if target_item:
+            if extend_selection:
+                # Extended selection logic
+                if not current_selection:
+                    # Start selection from current item
+                    self._tree.selection_add(current)
+                    self._tree.selection_add(target_item)
+                else:
+                    # Extend selection to target
+                    self._tree.selection_add(target_item)
+            else:
+                # Normal navigation - clear selection and select target
+                self._tree.selection_set(target_item)
+            
+            self._tree.focus(target_item)
+            self._tree.see(target_item)
+    
+    def _select_range(self, start_item: str, end_item: str) -> None:
+        """Select a range of items from start to end."""
+        items = self.get_visible_items()
+        if start_item not in items or end_item not in items:
+            return
+        
+        start_idx = items.index(start_item)
+        end_idx = items.index(end_item)
+        
+        # Ensure start <= end
+        if start_idx > end_idx:
+            start_idx, end_idx = end_idx, start_idx
+        
+        # Clear selection and select range
+        self._tree.selection_set(items[start_idx])
+        for i in range(start_idx + 1, end_idx + 1):
+            self._tree.selection_add(items[i])
+    
+    def _on_select_all(self, event) -> str:
+        """Handle Ctrl+A / Cmd+A to select all items."""
+        items = self.get_visible_items()
+        if items:
+            self._tree.selection_set(items)
+            if items:
+                self._tree.focus(items[0])
         return "break"
     
     # Callback setters
@@ -317,4 +459,67 @@ class LinkListView:
     
     def set_sort_callback(self, callback: Callable[[str, bool], None]) -> None:
         """Set callback for sort events."""
-        self._on_sort = callback 
+        self._on_sort = callback
+    
+    def get_focused_position(self) -> Optional[int]:
+        """Get the position of the currently focused item in the filtered list."""
+        current_focus = self._tree.focus()
+        if not current_focus:
+            return None
+        
+        visible_items = self.get_visible_items()
+        try:
+            return visible_items.index(current_focus)
+        except ValueError:
+            return None
+    
+    def set_focus_to_position(self, position: int) -> None:
+        """Set focus to a specific position in the filtered list."""
+        visible_items = self.get_visible_items()
+        if not visible_items:
+            return
+        
+        # Clamp position to valid range
+        position = max(0, min(position, len(visible_items) - 1))
+        target_item = visible_items[position]
+        
+        # Set focus and selection
+        self._tree.selection_set(target_item)
+        self._tree.focus(target_item)
+        self._tree.see(target_item)
+    
+    def get_selected_positions(self) -> List[int]:
+        """Get the positions of selected items in the filtered list."""
+        selected_items = self._tree.selection()
+        visible_items = self.get_visible_items()
+        positions = []
+        
+        for item in selected_items:
+            try:
+                position = visible_items.index(item)
+                positions.append(position)
+            except ValueError:
+                continue
+        
+        return sorted(positions)
+    
+    def restore_selection_by_positions(self, positions: List[int]) -> None:
+        """Restore selection to the given positions in the filtered list."""
+        visible_items = self.get_visible_items()
+        if not visible_items or not positions:
+            return
+        
+        # Clear current selection
+        self._tree.selection_clear()
+        
+        # Select items at valid positions
+        valid_positions = []
+        for pos in positions:
+            if 0 <= pos < len(visible_items):
+                self._tree.selection_add(visible_items[pos])
+                valid_positions.append(pos)
+        
+        # Set focus to the first valid position
+        if valid_positions:
+            self._tree.focus(visible_items[valid_positions[0]])
+            self._tree.see(visible_items[valid_positions[0]]) 

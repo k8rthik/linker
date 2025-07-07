@@ -20,6 +20,11 @@ class LinkController:
         self._current_sort_reverse = False
         self._current_filtered_links: List[Link] = []
         
+        # Focus management for better position handling
+        self._pending_focus_operation: Optional[str] = None
+        self._focus_position_before_operation: Optional[int] = None
+        self._selected_positions_before_operation: List[int] = []
+        
         # UI components
         self._search_bar: Optional[SearchBar] = None
         self._link_list_view: Optional[LinkListView] = None
@@ -62,7 +67,8 @@ class LinkController:
             ("Toggle Favorite", self._toggle_favorite),
             ("Mark Read/Unread", self._toggle_read_status),
             ("Open Random", self._open_random),
-            ("Open Unread", self._open_random_unread)
+            ("Open Random Favorite", self._open_random_favorite),
+            ("Open Random Unread", self._open_random_unread)
         ]
         
         for text, command in buttons:
@@ -96,6 +102,7 @@ class LinkController:
             self._root.bind("<Command-d>", lambda e: self._toggle_favorite())
             self._root.bind("<Command-e>", lambda e: self._toggle_read_status())
             self._root.bind("<Command-r>", lambda e: self._open_random())
+            self._root.bind("<Command-Shift-f>", lambda e: self._open_random_favorite())  # Changed to avoid conflict with search
             self._root.bind("<Command-u>", lambda e: self._open_random_unread())
             self._root.bind("<Command-l>", lambda e: self._focus_table())
         else:
@@ -103,6 +110,7 @@ class LinkController:
             self._root.bind("<Control-d>", lambda e: self._toggle_favorite())
             self._root.bind("<Control-e>", lambda e: self._toggle_read_status())
             self._root.bind("<Control-r>", lambda e: self._open_random())
+            self._root.bind("<Control-Shift-f>", lambda e: self._open_random_favorite())  # Changed to avoid conflict with search
             self._root.bind("<Control-u>", lambda e: self._open_random_unread())
             self._root.bind("<Control-l>", lambda e: self._focus_table())
         
@@ -132,6 +140,8 @@ class LinkController:
         # Update UI components
         self._link_list_view.set_links(all_links, filtered_links)
         self._link_list_view.set_sort_column(self._current_sort_column, self._current_sort_reverse)
+        
+        # Update result count
         self._search_bar.set_result_count(len(filtered_links), len(all_links))
         
         # Give focus to table if it's the first time or no search is active
@@ -146,12 +156,66 @@ class LinkController:
         """Restore selection to given indices."""
         self._link_list_view.restore_selection(indices)
     
+    def _save_focus_state(self, operation_type: str) -> None:
+        """Save the current focus state before an operation."""
+        self._pending_focus_operation = operation_type
+        self._focus_position_before_operation = self._link_list_view.get_focused_position()
+        self._selected_positions_before_operation = self._link_list_view.get_selected_positions()
+    
+    def _restore_focus_state(self) -> None:
+        """Restore focus state after an operation, handling different operation types."""
+        if not self._pending_focus_operation:
+            return
+        
+        try:
+            if self._pending_focus_operation == "delete":
+                # For deletion, try to maintain position, but handle edge cases
+                if self._focus_position_before_operation is not None:
+                    visible_items = self._link_list_view.get_visible_items()
+                    if visible_items:
+                        # If we deleted the last item, focus the new last item
+                        position = min(self._focus_position_before_operation, len(visible_items) - 1)
+                        self._link_list_view.set_focus_to_position(position)
+                    else:
+                        # No items left, nothing to focus
+                        pass
+                        
+            elif self._pending_focus_operation == "edit":
+                # For editing, maintain the same position even if the item moved
+                if self._focus_position_before_operation is not None:
+                    self._link_list_view.set_focus_to_position(self._focus_position_before_operation)
+                    
+            elif self._pending_focus_operation == "toggle":
+                # For toggle operations, restore original selection positions
+                if self._selected_positions_before_operation:
+                    self._link_list_view.restore_selection_by_positions(self._selected_positions_before_operation)
+                elif self._focus_position_before_operation is not None:
+                    self._link_list_view.set_focus_to_position(self._focus_position_before_operation)
+                    
+            else:
+                # Default: try to restore original positions
+                if self._selected_positions_before_operation:
+                    self._link_list_view.restore_selection_by_positions(self._selected_positions_before_operation)
+                elif self._focus_position_before_operation is not None:
+                    self._link_list_view.set_focus_to_position(self._focus_position_before_operation)
+                    
+        except Exception:
+            # If anything goes wrong, just ensure some item is focused if items exist
+            visible_items = self._link_list_view.get_visible_items()
+            if visible_items and not self._link_list_view.get_focused_position():
+                self._link_list_view.set_focus_to_position(0)
+        
+        finally:
+            # Clear the pending operation
+            self._pending_focus_operation = None
+            self._focus_position_before_operation = None
+            self._selected_positions_before_operation = []
+    
     # Event handlers
     def _on_data_changed(self) -> None:
         """Handle data changes from the service."""
-        selected_indices = self._get_selected_indices()
         self._refresh_view()
-        self._restore_selection(selected_indices)
+        self._restore_focus_state()
     
     def _on_search_changed(self, search_term: str) -> None:
         """Handle search term changes."""
@@ -178,6 +242,8 @@ class LinkController:
                                      f"Are you sure you want to delete {len(indices)} selected link(s)?"):
                 return
         
+        # Save focus state before deletion
+        self._save_focus_state("delete")
         self._link_service.delete_links_batch(indices)
     
     def _on_sort_requested(self, column: str, reverse: bool) -> None:
@@ -220,6 +286,9 @@ class LinkController:
         if not link:
             return
         
+        # Save focus state before editing
+        self._save_focus_state("edit")
+        
         def on_save(updated_link: Link) -> None:
             self._link_service.update_link(
                 link_id, updated_link.name, updated_link.url, updated_link.favorite,
@@ -232,12 +301,14 @@ class LinkController:
         """Toggle favorite status of selected links."""
         indices = self._get_selected_indices()
         if indices:
+            self._save_focus_state("toggle")
             self._link_service.toggle_favorites_batch(indices)
     
     def _toggle_read_status(self) -> None:
         """Toggle read status of selected links."""
         indices = self._get_selected_indices()
         if indices:
+            self._save_focus_state("toggle")
             self._link_service.toggle_read_status(indices)
     
     def _open_random(self) -> None:
@@ -247,6 +318,14 @@ class LinkController:
             self._link_list_view.select_and_scroll_to(link_index)
         else:
             messagebox.showinfo("Info", "No links available.")
+    
+    def _open_random_favorite(self) -> None:
+        """Open a random favorite link and select it in the UI."""
+        link_index = self._link_service.open_random_favorite_link()
+        if link_index is not None:
+            self._link_list_view.select_and_scroll_to(link_index)
+        else:
+            messagebox.showinfo("Info", "No favorite links available.")
     
     def _open_random_unread(self) -> None:
         """Open a random unread link and select it in the UI."""

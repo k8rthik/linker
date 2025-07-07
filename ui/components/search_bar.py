@@ -105,4 +105,12 @@ class SearchBar:
 
     def has_focus(self) -> bool:
         """Check if the search entry has focus."""
-        return self._search_entry == self._search_entry.focus_get() 
+        return self._search_entry == self._search_entry.focus_get()
+
+    def set_search_term(self, term: str) -> None:
+        """Set the search term without triggering the change callback."""
+        # Temporarily disable the callback to avoid recursive calls
+        original_callback = self._on_search_change
+        self._on_search_change = None
+        self._search_var.set(term)
+        self._on_search_change = original_callback 
