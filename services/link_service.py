@@ -178,6 +178,19 @@ class LinkService:
         success = self.open_link(link_id)
         return link_id if success else None
     
+    def open_random_favorite_link(self) -> Optional[int]:
+        """Open a random favorite link and return its index."""
+        links = self.get_all_links()
+        favorite_links = [link for link in links if link.favorite]
+        
+        if not favorite_links:
+            return None
+        
+        choice = random.choice(favorite_links)
+        link_id = links.index(choice)
+        success = self.open_link(link_id)
+        return link_id if success else None
+    
     def search_links(self, search_term: str) -> List[Link]:
         """Search links by name and URL."""
         if not search_term.strip():
