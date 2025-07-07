@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from typing import List, Optional
 from models.profile import Profile
 from models.link import Link
+from utils.resource_manager import get_data_file_path
 
 
 class ProfileRepository(ABC):
@@ -49,8 +50,9 @@ class JsonProfileRepository(ProfileRepository):
     """JSON file-based implementation of ProfileRepository."""
     
     def __init__(self, file_path: str = "profiles.json", legacy_links_path: str = "links.json"):
-        self._file_path = file_path
-        self._legacy_links_path = legacy_links_path
+        # Use resource manager to get proper file paths for bundled apps
+        self._file_path = str(get_data_file_path(file_path))
+        self._legacy_links_path = str(get_data_file_path(legacy_links_path))
         self._profiles: List[Profile] = []
         self._load_profiles()
     
