@@ -70,6 +70,7 @@ class ProfileController:
             ("Toggle Favorite", self._toggle_favorite),
             ("Mark Read/Unread", self._toggle_read_status),
             ("Open Random", self._open_random),
+            ("Open Random Favorite", self._open_random_favorite),
             ("Open Unread", self._open_random_unread)
         ]
         
@@ -108,17 +109,21 @@ class ProfileController:
             self._root.bind("<Command-d>", lambda e: self._toggle_favorite())
             self._root.bind("<Command-e>", lambda e: self._toggle_read_status())
             self._root.bind("<Command-r>", lambda e: self._open_random())
+            self._root.bind("<Command-Shift-f>", lambda e: self._open_random_favorite())
             self._root.bind("<Command-u>", lambda e: self._open_random_unread())
             self._root.bind("<Command-l>", lambda e: self._focus_table())
             self._root.bind("<Command-p>", lambda e: self._on_manage_profiles())
+            self._root.bind("<Command-n>", lambda e: self._add_links())
         else:
             # Windows/Linux shortcuts (using Ctrl key)
             self._root.bind("<Control-d>", lambda e: self._toggle_favorite())
             self._root.bind("<Control-e>", lambda e: self._toggle_read_status())
             self._root.bind("<Control-r>", lambda e: self._open_random())
+            self._root.bind("<Control-Shift-f>", lambda e: self._open_random_favorite())
             self._root.bind("<Control-u>", lambda e: self._open_random_unread())
             self._root.bind("<Control-l>", lambda e: self._focus_table())
             self._root.bind("<Control-p>", lambda e: self._on_manage_profiles())
+            self._root.bind("<Control-n>", lambda e: self._add_links())
         
         # Platform-independent shortcuts
         self._root.bind("<Return>", lambda e: self._edit_link())
@@ -143,7 +148,7 @@ class ProfileController:
         # Apply sorting
         if self._current_sort_column:
             filtered_links = self._profile_service.sort_links(
-                self._current_sort_column, self._current_sort_reverse
+                filtered_links, self._current_sort_column, self._current_sort_reverse
             )
         
         # Store current filtered links
@@ -152,6 +157,8 @@ class ProfileController:
         # Update UI components
         self._link_list_view.set_links(all_links, filtered_links)
         self._link_list_view.set_sort_column(self._current_sort_column, self._current_sort_reverse)
+        
+        # Update result count
         self._search_bar.set_result_count(len(filtered_links), len(all_links))
         
         # Give focus to table if it's the first time or no search is active
@@ -260,8 +267,10 @@ class ProfileController:
     # Action methods
     def _add_links(self) -> None:
         """Show add links dialog."""
-        def add_links_callback(links_data: List[tuple]) -> None:
-            for name, url in links_data:
+        def add_links_callback(urls: List[str]) -> None:
+            for url in urls:
+                # Extract name from URL or use the URL itself as name
+                name = url
                 link = Link(name, url)
                 self._profile_service.add_link(link)
         
@@ -331,6 +340,20 @@ class ProfileController:
         
         import random
         index = random.choice(unread_indices)
+        self._profile_service.open_links([index])
+        self._link_list_view.select_and_scroll_to(index)
+    
+    def _open_random_favorite(self) -> None:
+        """Open a random favorite link and select it in the UI."""
+        links = self._profile_service.get_links()
+        favorite_indices = [i for i, link in enumerate(links) if link.favorite]
+        
+        if not favorite_indices:
+            messagebox.showinfo("Info", "No favorite links available.")
+            return
+        
+        import random
+        index = random.choice(favorite_indices)
         self._profile_service.open_links([index])
         self._link_list_view.select_and_scroll_to(index)
     
