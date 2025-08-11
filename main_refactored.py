@@ -18,8 +18,11 @@ Design Patterns Used:
 Features:
 - Profile Management: Create, switch between, and manage multiple profiles
 - Each profile contains its own separate set of links
+- Import/Export functionality for data backup and migration
 - Automatic migration from legacy links.json format
 """
+
+from __version__ import __version__
 
 import tkinter as tk
 
@@ -51,7 +54,7 @@ class LinkManagerApp:
 
     def _setup_window(self) -> None:
         """Setup main window properties."""
-        self._root.title("linker")
+        self._root.title(f"linker v{__version__}")
         self._root.geometry("900x700")
         self._root.minsize(700, 500)
 
