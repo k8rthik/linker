@@ -135,7 +135,13 @@ class LinkListView:
         if index < len(self._links):
             item_id = str(index)
             if self._tree.exists(item_id):
+                # Clear all existing selections first
+                self._tree.selection_clear()
+                # Select only the target item
                 self._tree.selection_set(item_id)
+                # Set focus to the selected item
+                self._tree.focus(item_id)
+                # Scroll to make it visible
                 self._tree.see(item_id)
     
     def clear_selection(self) -> None:
@@ -185,21 +191,23 @@ class LinkListView:
         """Give focus to the tree view and ensure proper selection."""
         self._tree.focus_set()
         
-        # Ensure there's always a selection when items exist and focus is given
+        # Only auto-select if absolutely necessary (no items selected and no current focus)
         items = self.get_visible_items()
-        if items and not self._tree.selection():
-            # If no current selection and items exist, select the first item
-            self._tree.selection_set(items[0])
-            self._tree.focus(items[0])
-        elif items:
-            # If items exist but no focus item, set focus to first selected item
+        if items:
             current_focus = self._tree.focus()
-            if not current_focus or current_focus not in items:
-                selected = self._tree.selection()
-                if selected:
+            selected = self._tree.selection()
+            
+            if selected:
+                # If there are selected items, ensure focus is on the first selected item
+                if current_focus not in selected:
                     self._tree.focus(selected[0])
-                else:
-                    self._tree.focus(items[0])
+            elif current_focus and current_focus in items:
+                # If there's a valid focus item but no selection, that's fine - keep the focus
+                pass
+            else:
+                # Only if no selection AND no valid focus, select the first item
+                self._tree.selection_set(items[0])
+                self._tree.focus(items[0])
     
     def get_current_item(self) -> Optional[str]:
         """Get the currently focused item."""
@@ -216,6 +224,7 @@ class LinkListView:
                 self._tree.selection_add(item_id)
             else:
                 # Clear all selections and select only this item
+                self._tree.selection_clear()
                 self._tree.selection_set(item_id)
             self._tree.focus(item_id)
             self._tree.see(item_id)
@@ -360,9 +369,15 @@ class LinkListView:
         current = self._tree.focus()
         current_selection = list(self._tree.selection())
         
-        # If no current focus, start from first item
+        # If no current focus, try to start from the first selected item, otherwise first item
         if not current or current not in items:
-            target_item = items[0]
+            if current_selection and current_selection[0] in items:
+                # Start from the first selected item
+                target_item = current_selection[0]
+            else:
+                # Fallback to first item
+                target_item = items[0]
+            
             if extend_selection:
                 self._tree.selection_add(target_item)
             else:

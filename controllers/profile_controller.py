@@ -4,6 +4,7 @@ from typing import List, Optional
 from models.link import Link
 from models.profile import Profile
 from services.profile_service import ProfileService
+from services.import_export_service import ImportExportService
 from ui.components.link_list_view import LinkListView
 from ui.components.search_bar import SearchBar
 from ui.components.profile_selector import ProfileSelector
@@ -18,10 +19,14 @@ class ProfileController:
     def __init__(self, root: tk.Tk, profile_service: ProfileService):
         self._root = root
         self._profile_service = profile_service
+        self._import_export_service = ImportExportService(profile_service)
         self._current_search_term = ""
         self._current_sort_column: Optional[str] = None
         self._current_sort_reverse = False
         self._current_filtered_links: List[Link] = []
+        
+        # Flag to track when we're performing a targeted selection (e.g., opening random link)
+        self._performing_targeted_selection = False
         
         # UI components
         self._profile_selector: Optional[ProfileSelector] = None
@@ -64,7 +69,8 @@ class ProfileController:
         btn_frame = tk.Frame(self._root)
         btn_frame.pack(fill=tk.X, padx=10, pady=5)
         
-        buttons = [
+        # Left side buttons (main actions)
+        left_buttons = [
             ("Add Links", self._add_links),
             ("Edit", self._edit_link),
             ("Toggle Favorite", self._toggle_favorite),
@@ -74,8 +80,15 @@ class ProfileController:
             ("Open Unread", self._open_random_unread)
         ]
         
-        for text, command in buttons:
+        for text, command in left_buttons:
             tk.Button(btn_frame, text=text, command=command).pack(side=tk.LEFT, padx=5)
+        
+        # Right side buttons (import/export)
+        right_frame = tk.Frame(btn_frame)
+        right_frame.pack(side=tk.RIGHT)
+        
+        tk.Button(right_frame, text="Import Links", command=self._import_links).pack(side=tk.LEFT, padx=5)
+        tk.Button(right_frame, text="Export Links", command=self._export_links).pack(side=tk.LEFT)
     
     def _setup_callbacks(self) -> None:
         """Setup callbacks for UI components."""
@@ -176,9 +189,18 @@ class ProfileController:
     # Event handlers
     def _on_data_changed(self) -> None:
         """Handle data changes from the service."""
-        selected_indices = self._get_selected_indices()
-        self._refresh_view()
-        self._restore_selection(selected_indices)
+        # If we're performing a targeted selection (like opening a random link),
+        # don't restore the previous selection as it will be overridden anyway
+        if not self._performing_targeted_selection:
+            selected_indices = self._get_selected_indices()
+            self._refresh_view()
+            if selected_indices:
+                self._restore_selection(selected_indices)
+        else:
+            # Just refresh the view, targeted selection will handle its own selection
+            self._refresh_view()
+            # Reset the flag after the refresh
+            self._performing_targeted_selection = False
     
     def _on_profile_changed(self, profile_name: str) -> None:
         """Handle profile selection change."""
@@ -326,6 +348,9 @@ class ProfileController:
         
         import random
         index = random.randint(0, len(links) - 1)
+        
+        # Set flag to prevent selection restoration during data change
+        self._performing_targeted_selection = True
         self._profile_service.open_links([index])
         self._link_list_view.select_and_scroll_to(index)
     
@@ -340,6 +365,9 @@ class ProfileController:
         
         import random
         index = random.choice(unread_indices)
+        
+        # Set flag to prevent selection restoration during data change
+        self._performing_targeted_selection = True
         self._profile_service.open_links([index])
         self._link_list_view.select_and_scroll_to(index)
     
@@ -354,6 +382,9 @@ class ProfileController:
         
         import random
         index = random.choice(favorite_indices)
+        
+        # Set flag to prevent selection restoration during data change
+        self._performing_targeted_selection = True
         self._profile_service.open_links([index])
         self._link_list_view.select_and_scroll_to(index)
     
@@ -401,5 +432,20 @@ class ProfileController:
         indices = self._get_selected_indices()
         if indices:
             self._profile_service.open_links(indices)
-        else:
-            messagebox.showinfo("Info", "Please select one or more links to open.")
+    
+    def _export_links(self) -> None:
+        """Export all links from all profiles to a file."""
+        try:
+            self._import_export_service.export_all_links()
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed to export links: {str(e)}")
+    
+    def _import_links(self) -> None:
+        """Import links from a file."""
+        try:
+            success = self._import_export_service.import_links()
+            if success:
+                # Refresh the view to show imported data
+                self._refresh_view()
+        except Exception as e:
+            messagebox.showerror("Import Error", f"Failed to import links: {str(e)}")

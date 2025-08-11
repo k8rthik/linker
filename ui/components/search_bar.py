@@ -27,7 +27,7 @@ class SearchBar:
         self._search_entry.pack(side=tk.LEFT, padx=(0, 5))
         
         # Bind search as user types
-        self._search_var.trace('w', self._on_search_var_change)
+        self._search_var.trace_add('write', self._on_search_var_change)
         
         # Clear button
         self._clear_btn = tk.Button(self._frame, text="Clear", command=self._on_clear_clicked)

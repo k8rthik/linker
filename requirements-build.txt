@@ -1,0 +1,15 @@
+# Build Requirements for Binary Releases
+# =======================================
+# These are the minimal requirements needed to build standalone binaries
+
+# Core dependencies (must match requirements.txt)
+requests>=2.28.0
+beautifulsoup4>=4.11.0
+lxml>=4.9.0
+
+# Build tools
+pyinstaller>=5.7.0  # For cross-platform binaries
+py2app>=0.28.0      # For macOS .app bundles
+
+# Note: This file contains only the dependencies needed for building
+# the binary releases. The actual runtime dependencies are in requirements.txt

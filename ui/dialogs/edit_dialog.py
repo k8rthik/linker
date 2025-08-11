@@ -87,7 +87,7 @@ class EditLinkDialog:
         btn_frame = tk.Frame(parent)
         btn_frame.grid(row=11, column=0, columnspan=2, pady=(10, 0))
         
-        save_btn = tk.Button(btn_frame, text="Save", command=self._on_save_clicked, width=10)
+        save_btn = tk.Button(btn_frame, text="Save (⌘⏎)", command=self._on_save_clicked, width=12)
         save_btn.pack(side=tk.LEFT, padx=(0, 10))
         
         cancel_btn = tk.Button(btn_frame, text="Cancel", command=self._on_cancel_clicked, width=10)
@@ -99,6 +99,11 @@ class EditLinkDialog:
         self._dialog.grab_set()
         self._name_entry.focus()
         self._name_entry.select_range(0, tk.END)
+        
+        # Bind keyboard shortcuts
+        self._dialog.bind("<Control-Return>", lambda e: self._on_save_clicked())
+        self._dialog.bind("<Command-Return>", lambda e: self._on_save_clicked())
+        self._dialog.bind("<Escape>", lambda e: self._on_cancel_clicked())
         
         # Center the dialog
         self._dialog.update_idletasks()

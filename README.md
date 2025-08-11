@@ -31,6 +31,12 @@ linker is a lightweight desktop application that helps you organize and manage y
 - **Seamless Navigation**: Tab between search and list, use arrow keys for selection
 - **Context-Aware Actions**: Escape key behavior changes based on current focus
 
+### Import/Export
+- **Export All Links**: Consolidate all profiles and links into a single JSON file for backup or transfer
+- **Import with Options**: Import links with merge or replace options
+- **Profile Selection**: Choose which profiles to import from exported files
+- **Data Migration**: Easily transfer your link collection between devices or applications
+
 ### Coming Soon
 - Tagging functionality
 - More keybinds 
@@ -85,6 +91,58 @@ pip install -r requirements-dev.txt
 | `Double-click` | Open links in browser |
 | `Delete/Backspace` | Delete selected links |
 
+### Import/Export Features
+
+**Exporting Your Links:**
+1. Click the "Export Links" button in the main interface
+2. Choose a location to save your link file
+3. All links from all profiles will be exported to a single JSON array file
+4. Each link includes all its attributes (name, URL, favorite status, dates) plus the profile it came from
+
+**Importing Links:**
+1. Click the "Import Links" button and select a previously exported JSON file
+2. Review the import summary showing total links and profiles
+3. Confirm the import with intelligent merging:
+   - **New profiles** are created automatically if they don't exist
+   - **Duplicate URLs** are detected and intelligently merged
+   - **Conflicting metadata** is merged (better names, favorite status, dates)
+   - **No data loss** - existing links are enhanced, not overwritten
+
+**Export File Format:**
+The export creates a simple JSON array where each link looks like:
+```json
+[
+  {
+    "name": "Example Link",
+    "url": "https://example.com",
+    "favorite": false,
+    "date_added": "2024-01-01T12:00:00",
+    "last_opened": null,
+    "profile": "Work"
+  }
+]
+```
+
+### Tips for Effective Use
+
+**For Students:**
+- Use descriptive names for research papers and articles
+- Mark important sources as favorites
+- Use the read/unread system to track research progress
+- Export your research links before major projects for backup
+
+**For Developers:**
+- Organize documentation links and tutorials
+- Use favorites for frequently referenced resources
+- Search by technology keywords in URLs or names
+- Export project-specific links to share with team members
+
+**For General Use:**
+- Add news articles to read later
+- Organize shopping or travel planning links
+- Keep track of interesting finds for future reference
+- Use export feature to backup your link collection regularly
+
 ## Technical Details
 
 ### Data Storage
@@ -96,8 +154,29 @@ pip install -r requirements-dev.txt
 - Works on Windows, macOS, and Linux
 - Platform-specific keyboard shortcuts (Cmd on Mac, Ctrl elsewhere)
 
-## Potential Enhancements
+## Limitations & Future Ideas
+
+### Current Limitations
+- Desktop-only (no mobile app)
+- Local storage only (no cloud sync)
+- JSON-only import/export (no browser bookmark formats yet)
+
+### Potential Enhancements
 - Browser extension for easier link capture
-- Import from browser bookmarks
-- Export to various formats
+- Tag system for better organization
+- Import from browser bookmarks (HTML, CSV)
+- Export to various formats (CSV, HTML, Markdown)
 - Basic analytics on link usage
+- Cloud sync capabilities
+
+## Contributing
+
+While this is primarily a personal project, suggestions and bug reports are welcome. Since this is a learning project, the focus is on clean, readable code rather than advanced features.
+
+## License
+
+This project is available for personal use and learning. Feel free to adapt it for your own needs.
+
+---
+
+*Created as a personal productivity tool and learning exercise in software architecture. While functional and reliable for personal use, this application is designed primarily for individual productivity rather than enterprise deployment.*
