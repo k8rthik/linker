@@ -120,7 +120,23 @@ class LinkListView:
         """Get the indices of selected items."""
         selected_items = self._tree.selection()
         return [int(item) for item in selected_items if item.isdigit()]
-    
+
+    def get_visual_positions_of_selected(self) -> List[int]:
+        """Get the visual positions (row numbers) of selected items in the current view."""
+        selected_items = self._tree.selection()
+        all_items = self._tree.get_children()
+        return [all_items.index(item) for item in selected_items if item in all_items]
+
+    def select_by_visual_position(self, position: int) -> None:
+        """Select an item by its visual position (row number) in the current view."""
+        all_items = self._tree.get_children()
+        if 0 <= position < len(all_items):
+            item_id = all_items[position]
+            self._tree.selection_clear()
+            self._tree.selection_set(item_id)
+            self._tree.focus(item_id)
+            self._tree.see(item_id)
+
     def restore_selection(self, indices: List[int]) -> None:
         """Restore selection to the given indices."""
         self._tree.selection_clear()
@@ -187,27 +203,34 @@ class LinkListView:
         # Arrow keys are handled directly by the tree widget
         pass
     
-    def focus(self) -> None:
-        """Give focus to the tree view and ensure proper selection."""
+    def focus(self, auto_select_first: bool = False) -> None:
+        """Give focus to the tree view.
+
+        Args:
+            auto_select_first: If True, automatically select the first item when there's
+                             no selection. Default False to avoid interfering with
+                             selection restoration and other operations.
+        """
         self._tree.focus_set()
-        
-        # Only auto-select if absolutely necessary (no items selected and no current focus)
+
         items = self.get_visible_items()
-        if items:
-            current_focus = self._tree.focus()
-            selected = self._tree.selection()
-            
-            if selected:
-                # If there are selected items, ensure focus is on the first selected item
-                if current_focus not in selected:
-                    self._tree.focus(selected[0])
-            elif current_focus and current_focus in items:
-                # If there's a valid focus item but no selection, that's fine - keep the focus
-                pass
-            else:
-                # Only if no selection AND no valid focus, select the first item
-                self._tree.selection_set(items[0])
-                self._tree.focus(items[0])
+        if not items:
+            return
+
+        current_focus = self._tree.focus()
+        selected = self._tree.selection()
+
+        if selected:
+            # If there are selected items, ensure focus is on the first selected item
+            if current_focus not in selected:
+                self._tree.focus(selected[0])
+        elif current_focus and current_focus in items:
+            # If there's a valid focus item but no selection, keep the focus
+            pass
+        elif auto_select_first:
+            # Only auto-select first item if explicitly requested
+            self._tree.selection_set(items[0])
+            self._tree.focus(items[0])
     
     def get_current_item(self) -> Optional[str]:
         """Get the currently focused item."""

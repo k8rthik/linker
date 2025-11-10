@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2025-11-10
+
+### Fixed
+- Fixed keyboard shortcut for opening random favorite links (Cmd+Shift+F on macOS, Ctrl+Shift+F on Windows/Linux) - updated binding to use uppercase F to avoid conflict with search shortcut
+- Fixed delete focus behavior when list is sorted - focus now correctly moves down one visual position instead of jumping to unrelated items based on unsorted data order
+
+### Technical Improvements
+- Added visual position tracking methods in LinkListView for proper focus management
+- Improved delete operation to maintain visual position consistency across different sort orders
+
 ## [0.2.0] - 2024-12-19
 
 ### Added

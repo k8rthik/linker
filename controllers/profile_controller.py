@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import messagebox
-from typing import List, Optional
+from typing import List, Optional, Tuple
+from collections import deque
+import threading
 from models.link import Link
 from models.profile import Profile
 from services.profile_service import ProfileService
@@ -11,6 +13,8 @@ from ui.components.profile_selector import ProfileSelector
 from ui.dialogs.edit_dialog import EditLinkDialog
 from ui.dialogs.add_links_dialog import AddLinksDialog
 from ui.dialogs.profile_manager_dialog import ProfileManagerDialog
+from ui.dialogs.analytics_dialog import AnalyticsDialog
+from utils.title_fetcher import TitleFetcher
 
 
 class ProfileController:
@@ -24,10 +28,17 @@ class ProfileController:
         self._current_sort_column: Optional[str] = None
         self._current_sort_reverse = False
         self._current_filtered_links: List[Link] = []
-        
+
         # Flag to track when we're performing a targeted selection (e.g., opening random link)
         self._performing_targeted_selection = False
-        
+
+        # Undo stack for delete operations (stores tuples of (indices, links))
+        self._undo_stack: deque = deque(maxlen=20)  # Keep last 20 delete operations
+
+        # Vim-style numeric prefix buffer
+        self._numeric_buffer = ""
+        self._numeric_label: Optional[tk.Label] = None
+
         # UI components
         self._profile_selector: Optional[ProfileSelector] = None
         self._search_bar: Optional[SearchBar] = None
@@ -35,10 +46,15 @@ class ProfileController:
         
         # Register as observer
         self._profile_service.add_observer(self._on_data_changed)
-        
+
         self._create_ui()
         self._setup_callbacks()
         self._refresh_view()
+        # Auto-select first item on initial load
+        self._link_list_view.focus(auto_select_first=True)
+
+        # Background scan for title updates (runs after UI is ready)
+        self._root.after(1000, self._scan_and_update_titles)  # Wait 1 second after startup
     
     def _create_ui(self) -> None:
         """Create the user interface."""
@@ -68,6 +84,10 @@ class ProfileController:
         """Create the button frame with action buttons."""
         btn_frame = tk.Frame(self._root)
         btn_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        # Numeric buffer display (vim-style)
+        self._numeric_label = tk.Label(btn_frame, text="", fg="blue", font=("Courier", 10, "bold"))
+        self._numeric_label.pack(side=tk.LEFT, padx=(0, 10))
         
         # Left side buttons (main actions)
         left_buttons = [
@@ -95,6 +115,7 @@ class ProfileController:
         # Profile selector callbacks
         self._profile_selector.set_profile_changed_callback(self._on_profile_changed)
         self._profile_selector.set_manage_profiles_callback(self._on_manage_profiles)
+        self._profile_selector.set_analytics_callback(self._show_analytics)
         
         # Search bar callbacks
         self._search_bar.set_search_change_callback(self._on_search_changed)
@@ -111,33 +132,41 @@ class ProfileController:
         """Setup global keyboard shortcuts."""
         self._search_bar.bind_keyboard_shortcuts(self._root)
         self._link_list_view.bind_keyboard_shortcuts(self._root)
-        
+
         # Escape key handling
         self._root.bind("<Escape>", self._on_escape_pressed)
-        
+
+        # Number keys for vim-style prefix (0-9)
+        for num in range(10):
+            self._root.bind(str(num), self._on_number_key_pressed)
+
         # Additional shortcuts
         import sys
         if sys.platform == "darwin":
             # macOS shortcuts (using Command key)
-            self._root.bind("<Command-d>", lambda e: self._toggle_favorite())
-            self._root.bind("<Command-e>", lambda e: self._toggle_read_status())
-            self._root.bind("<Command-r>", lambda e: self._open_random())
-            self._root.bind("<Command-Shift-f>", lambda e: self._open_random_favorite())
-            self._root.bind("<Command-u>", lambda e: self._open_random_unread())
+            self._root.bind("<Command-d>", lambda e: self._execute_with_multiplier(self._toggle_favorite))
+            self._root.bind("<Command-e>", lambda e: self._execute_with_multiplier(self._toggle_read_status))
+            self._root.bind("<Command-r>", lambda e: self._execute_with_multiplier(self._open_random))
+            self._root.bind("<Command-Shift-F>", lambda e: self._execute_with_multiplier(self._open_random_favorite))
+            self._root.bind("<Command-u>", lambda e: self._execute_with_multiplier(self._open_random_unread))
             self._root.bind("<Command-l>", lambda e: self._focus_table())
             self._root.bind("<Command-p>", lambda e: self._on_manage_profiles())
             self._root.bind("<Command-n>", lambda e: self._add_links())
+            self._root.bind("<Command-z>", lambda e: self._undo_delete())
+            self._root.bind("<Command-Shift-t>", lambda e: self._manual_scan_titles())
         else:
             # Windows/Linux shortcuts (using Ctrl key)
-            self._root.bind("<Control-d>", lambda e: self._toggle_favorite())
-            self._root.bind("<Control-e>", lambda e: self._toggle_read_status())
-            self._root.bind("<Control-r>", lambda e: self._open_random())
-            self._root.bind("<Control-Shift-f>", lambda e: self._open_random_favorite())
-            self._root.bind("<Control-u>", lambda e: self._open_random_unread())
+            self._root.bind("<Control-d>", lambda e: self._execute_with_multiplier(self._toggle_favorite))
+            self._root.bind("<Control-e>", lambda e: self._execute_with_multiplier(self._toggle_read_status))
+            self._root.bind("<Control-r>", lambda e: self._execute_with_multiplier(self._open_random))
+            self._root.bind("<Control-Shift-F>", lambda e: self._execute_with_multiplier(self._open_random_favorite))
+            self._root.bind("<Control-u>", lambda e: self._execute_with_multiplier(self._open_random_unread))
             self._root.bind("<Control-l>", lambda e: self._focus_table())
             self._root.bind("<Control-p>", lambda e: self._on_manage_profiles())
             self._root.bind("<Control-n>", lambda e: self._add_links())
-        
+            self._root.bind("<Control-z>", lambda e: self._undo_delete())
+            self._root.bind("<Control-Shift-t>", lambda e: self._manual_scan_titles())
+
         # Platform-independent shortcuts
         self._root.bind("<Return>", lambda e: self._edit_link())
         self._root.bind("<Tab>", self._on_tab_pressed)
@@ -173,10 +202,6 @@ class ProfileController:
         
         # Update result count
         self._search_bar.set_result_count(len(filtered_links), len(all_links))
-        
-        # Give focus to table if it's the first time or no search is active
-        if not self._current_search_term and not self._search_bar.has_focus():
-            self._link_list_view.focus()
     
     def _get_selected_indices(self) -> List[int]:
         """Get currently selected link indices."""
@@ -211,6 +236,8 @@ class ProfileController:
             self._current_sort_reverse = False
             self._search_bar.clear_search()
             self._refresh_view()
+            # Auto-select first item when switching profiles
+            self._link_list_view.focus(auto_select_first=True)
     
     def _on_manage_profiles(self) -> None:
         """Show the profile management dialog."""
@@ -254,16 +281,46 @@ class ProfileController:
             self._profile_service.open_links(indices)
     
     def _on_delete_key_pressed(self, indices: List[int]) -> None:
-        """Handle delete key press."""
+        """Handle delete key press and save to undo stack."""
         if not indices:
             return
-        
+
         if len(indices) > 1:
-            if not messagebox.askyesno("Confirm Deletion", 
+            if not messagebox.askyesno("Confirm Deletion",
                                      f"Are you sure you want to delete {len(indices)} selected link(s)?"):
                 return
-        
+
+        # Get the visual position of the first selected item before deletion
+        visual_positions = self._link_list_view.get_visual_positions_of_selected()
+        if not visual_positions:
+            return
+
+        first_visual_position = min(visual_positions)
+
+        # Remember the links for undo
+        links = self._profile_service.get_links()
+        deleted_links = [links[i] for i in sorted(indices)]
+        self._undo_stack.append((sorted(indices), deleted_links))
+
+        # Delete the links
         self._profile_service.delete_links(indices)
+
+        # Smart refocusing: select the item at the same visual position
+        # If we deleted the last item(s), select the new last item
+        remaining_links = self._profile_service.get_links()
+        if remaining_links:
+            # Get total number of visible items after deletion
+            # (accounting for any active search filter)
+            all_items = self._link_list_view._tree.get_children()
+            total_visible = len(all_items)
+
+            if total_visible > 0:
+                # Stay at the same visual position, or go to the last item if we deleted beyond the end
+                new_visual_position = min(first_visual_position, total_visible - 1)
+                self._link_list_view.select_by_visual_position(new_visual_position)
+        else:
+            # No links left, just clear selection
+            self._link_list_view.clear_selection()
     
     def _on_sort_requested(self, column: str, reverse: bool) -> None:
         """Handle sort request."""
@@ -273,6 +330,11 @@ class ProfileController:
     
     def _on_escape_pressed(self, event) -> None:
         """Handle escape key press based on which widget has focus."""
+        # Clear numeric buffer first if present
+        if self._numeric_buffer:
+            self._clear_numeric_buffer()
+            return
+
         if self._search_bar.has_focus():
             # Search bar has focus - clear search
             self._search_bar.clear_search()
@@ -285,18 +347,174 @@ class ProfileController:
                 self._search_bar.clear_search()
             else:
                 self._link_list_view.clear_selection()
+
+    def _on_number_key_pressed(self, event) -> str:
+        """Handle number key press for vim-style multiplier."""
+        # Don't capture numbers when typing in search bar
+        if self._search_bar.has_focus():
+            return
+
+        # Add to numeric buffer
+        self._numeric_buffer += event.char
+        self._update_numeric_display()
+        return "break"  # Prevent default behavior
+
+    def _update_numeric_display(self) -> None:
+        """Update the numeric buffer display."""
+        if self._numeric_buffer:
+            self._numeric_label.config(text=f"[{self._numeric_buffer}]")
+        else:
+            self._numeric_label.config(text="")
+
+    def _clear_numeric_buffer(self) -> None:
+        """Clear the numeric buffer."""
+        self._numeric_buffer = ""
+        self._update_numeric_display()
+
+    def _get_multiplier(self) -> int:
+        """Get the current multiplier from numeric buffer, default to 1."""
+        if not self._numeric_buffer:
+            return 1
+        try:
+            multiplier = int(self._numeric_buffer)
+            return max(1, multiplier)  # At least 1
+        except ValueError:
+            return 1
+
+    def _execute_with_multiplier(self, func) -> None:
+        """Execute a function N times based on numeric buffer."""
+        multiplier = self._get_multiplier()
+        self._clear_numeric_buffer()
+
+        for _ in range(multiplier):
+            func()
+
+    def _undo_delete(self) -> None:
+        """Undo the last delete operation."""
+        if not self._undo_stack:
+            messagebox.showinfo("Undo", "Nothing to undo.")
+            return
+
+        # Pop the last delete operation
+        indices, links = self._undo_stack.pop()
+
+        # Re-insert the links at their original positions
+        all_links = self._profile_service.get_links()
+
+        # Sort indices in reverse to maintain correct positions during insertion
+        for index, link in sorted(zip(indices, links), reverse=True):
+            # Insert at the original position (clamped to valid range)
+            insert_pos = min(index, len(all_links))
+            all_links.insert(insert_pos, link)
+
+        # Update the profile with restored links
+        current_profile = self._profile_service.get_current_profile()
+        if current_profile:
+            current_profile.links = all_links
+            self._profile_service._repository.update(current_profile)
+            self._profile_service._notify_observers()
+
+        messagebox.showinfo("Undo", f"Restored {len(links)} link(s).")
     
     # Action methods
     def _add_links(self) -> None:
-        """Show add links dialog."""
+        """Show add links dialog with smart title fetching."""
         def add_links_callback(urls: List[str]) -> None:
+            if not urls:
+                return
+
+            # First, add all links immediately with URL as name
             for url in urls:
-                # Extract name from URL or use the URL itself as name
-                name = url
-                link = Link(name, url)
+                link = Link(url, url)  # Temporary: name = url
                 self._profile_service.add_link(link)
-        
+
+            # Then, asynchronously fetch and update titles for those that need it
+            self._background_fetch_titles(urls)
+
         AddLinksDialog(self._root, add_links_callback)
+
+    def _background_fetch_titles(self, urls: List[str]) -> None:
+        """Fetch titles in background for URLs that need it."""
+        def fetch_and_update():
+            all_links = self._profile_service.get_links()
+
+            # Find the newly added links and check which need title fetching
+            updates = []
+            for url in urls:
+                # Find the link with this URL
+                for i, link in enumerate(all_links):
+                    if link.url == url and TitleFetcher.should_fetch_title(url, link.name):
+                        # Fetch the title
+                        title = TitleFetcher.fetch_title(url)
+                        if title:
+                            updates.append((i, title))
+                        break
+
+            # Apply updates on main thread
+            if updates:
+                self._root.after(0, lambda: self._apply_title_updates(updates))
+
+        # Run in background thread
+        thread = threading.Thread(target=fetch_and_update, daemon=True)
+        thread.start()
+
+    def _apply_title_updates(self, updates: List[Tuple[int, str]]) -> None:
+        """Apply title updates to links."""
+        all_links = self._profile_service.get_links()
+
+        for index, new_title in updates:
+            if index < len(all_links):
+                link = all_links[index]
+                link.name = new_title
+                self._profile_service.update_link(index, link)
+
+    def _scan_and_update_titles(self) -> None:
+        """Background scan of existing links to update titles where needed."""
+        all_links = self._profile_service.get_links()
+
+        # Find links that need title updates
+        links_to_fetch = []
+        for i, link in enumerate(all_links):
+            if TitleFetcher.should_fetch_title(link.url, link.name):
+                links_to_fetch.append((i, link.url))
+
+        if not links_to_fetch:
+            return
+
+        # Fetch in background
+        def fetch_all():
+            updates = []
+            for index, url in links_to_fetch:
+                title = TitleFetcher.fetch_title(url)
+                if title:
+                    updates.append((index, title))
+
+            # Apply updates on main thread
+            if updates:
+                self._root.after(0, lambda: self._apply_title_updates(updates))
+
+        thread = threading.Thread(target=fetch_all, daemon=True)
+        thread.start()
+
+    def _manual_scan_titles(self) -> None:
+        """Manually trigger a scan for title updates."""
+        all_links = self._profile_service.get_links()
+
+        # Count how many links would be updated
+        count = sum(1 for link in all_links
+                   if TitleFetcher.should_fetch_title(link.url, link.name))
+
+        if count == 0:
+            messagebox.showinfo("Scan Titles", "All links already have good titles!")
+            return
+
+        if messagebox.askyesno("Scan Titles",
+                              f"Found {count} link(s) that could use better titles.\n"
+                              "Fetch titles from the web?\n\n"
+                              "(This will only update links with URL-based names)"):
+            self._scan_and_update_titles()
+            messagebox.showinfo("Scan Titles",
+                              f"Fetching titles for {count} link(s) in background...")
     
     def _edit_link(self) -> None:
         """Show edit link dialog."""
@@ -449,3 +667,12 @@ class ProfileController:
                 self._refresh_view()
         except Exception as e:
             messagebox.showerror("Import Error", f"Failed to import links: {str(e)}")
+
+    def _show_analytics(self) -> None:
+        """Show analytics dialog."""
+        current_profile = self._profile_service.get_current_profile()
+        all_profiles = self._profile_service.get_all_profiles()
+
+        if current_profile:
+            dialog = AnalyticsDialog(self._root, current_profile, all_profiles)
+            dialog.show()
