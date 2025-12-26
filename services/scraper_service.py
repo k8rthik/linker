@@ -183,6 +183,10 @@ class ScraperService:
                 if not self._is_same_domain(abs_url, domain):
                     continue
 
+                # Filter out non-content pages
+                if not self._is_content_url(abs_url, domain):
+                    continue
+
                 # Check robots.txt for this URL
                 try:
                     if not rp.can_fetch(user_agent, abs_url):
@@ -205,6 +209,79 @@ class ScraperService:
             parsed = urlparse(url)
             return parsed.netloc.lower() == domain
         except Exception:
+            return False
+
+    def _is_content_url(self, url: str, domain: str) -> bool:
+        """
+        Check if URL is likely a content page (not infrastructure/navigation).
+        Returns True if URL should be included in scraping results.
+        """
+        try:
+            parsed = urlparse(url)
+            path = parsed.path.lower()
+
+            # Skip root/home page
+            if path in ('', '/', '/index', '/index.html', '/index.php', '/home'):
+                return False
+
+            # Skip static assets and media
+            static_extensions = (
+                '.css', '.js', '.json', '.xml', '.txt', '.ico', '.svg',
+                '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp',
+                '.mp4', '.mp3', '.wav', '.avi', '.mov',
+                '.pdf', '.zip', '.tar', '.gz', '.rar',
+                '.woff', '.woff2', '.ttf', '.eot'
+            )
+            if path.endswith(static_extensions):
+                return False
+
+            # Skip CDN patterns
+            cdn_patterns = [
+                'cdn.', 'static.', 'assets.', 'media.', 'img.', 'images.',
+                'cloudflare', 'cloudfront', 'akamai', 'fastly'
+            ]
+            netloc = parsed.netloc.lower()
+            if any(pattern in netloc for pattern in cdn_patterns):
+                return False
+
+            # Skip common non-content pages
+            skip_paths = [
+                '/about', '/contact', '/privacy', '/terms', '/tos',
+                '/legal', '/cookies', '/policy', '/policies',
+                '/login', '/signin', '/signup', '/register', '/auth',
+                '/logout', '/signout',
+                '/admin', '/dashboard', '/settings', '/account',
+                '/api/', '/feed/', '/rss/', '/sitemap',
+                '/search', '/tag/', '/tags/', '/category/', '/categories/',
+                '/archive/', '/archives/',
+                '/wp-admin', '/wp-content', '/wp-includes',
+                '/css/', '/js/', '/fonts/', '/images/', '/img/',
+                '/static/', '/assets/', '/media/',
+                '/help', '/faq', '/support', '/docs', '/documentation'
+            ]
+            if any(path.startswith(skip) for skip in skip_paths):
+                return False
+
+            # Skip URLs with common query parameters for navigation/tracking
+            query = parsed.query.lower()
+            skip_params = ['page=', 'sort=', 'filter=', 'utm_', 'ref=', 'source=']
+            if any(param in query for param in skip_params):
+                return False
+
+            # Skip URLs that look like pagination or sorting variations
+            # (same base path with different query params)
+            if '?' in url and any(p in query for p in ['page', 'offset', 'limit', 'sort', 'order']):
+                return False
+
+            # Must have some path beyond root (actual content)
+            if len(path.strip('/')) < 2:
+                return False
+
+            # Passed all filters - likely a content URL
+            return True
+
+        except Exception:
+            # If parsing fails, err on the side of caution and skip
             return False
 
     def _normalize_link(self, base: str, link: str) -> str:
