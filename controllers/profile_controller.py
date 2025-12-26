@@ -20,9 +20,11 @@ from utils.title_fetcher import TitleFetcher
 class ProfileController:
     """Controller for managing profiles and their links with UI interactions."""
     
-    def __init__(self, root: tk.Tk, profile_service: ProfileService):
+    def __init__(self, root: tk.Tk, profile_service: ProfileService,
+                 scraper_service: Optional['ScraperService'] = None):
         self._root = root
         self._profile_service = profile_service
+        self._scraper_service = scraper_service
         self._import_export_service = ImportExportService(profile_service)
         self._current_search_term = ""
         self._current_sort_column: Optional[str] = None
@@ -55,6 +57,10 @@ class ProfileController:
 
         # Background scan for title updates (runs after UI is ready)
         self._root.after(1000, self._scan_and_update_titles)  # Wait 1 second after startup
+
+        # Run scraper if needed (5 seconds after startup, after titles start fetching)
+        if self._scraper_service:
+            self._root.after(5000, self._run_scraper_if_needed)
     
     def _create_ui(self) -> None:
         """Create the user interface."""
@@ -515,7 +521,33 @@ class ProfileController:
             self._scan_and_update_titles()
             messagebox.showinfo("Scan Titles",
                               f"Fetching titles for {count} link(s) in background...")
-    
+
+    def _run_scraper_if_needed(self) -> None:
+        """Check and run scraper if 24 hours elapsed since last run."""
+        if not self._scraper_service or not self._scraper_service.should_run_scrape():
+            # Schedule next check in 1 hour
+            if self._scraper_service:
+                self._root.after(3600000, self._run_scraper_if_needed)
+            return
+
+        def scrape_in_background():
+            result = self._scraper_service.run_scheduled_scrape()
+            # Schedule UI update on main thread
+            if result:
+                self._root.after(0, lambda: self._on_scrape_completed(result))
+
+        # Run in daemon thread (follow pattern from _background_fetch_titles)
+        thread = threading.Thread(target=scrape_in_background, daemon=True)
+        thread.start()
+
+        # Schedule next check in 1 hour
+        self._root.after(3600000, self._run_scraper_if_needed)
+
+    def _on_scrape_completed(self, result: dict) -> None:
+        """Handle scrape completion."""
+        if result.get('new_links', 0) > 0:
+            print(f"Scraper: Added {result['new_links']} new links from {result.get('domain', 'unknown')}")
+
     def _edit_link(self) -> None:
         """Show edit link dialog."""
         indices = self._get_selected_indices()

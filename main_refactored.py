@@ -30,6 +30,7 @@ from controllers.profile_controller import ProfileController
 from repositories.profile_repository import JsonProfileRepository
 from services.browser_service import SystemBrowserService
 from services.profile_service import ProfileService
+from services.scraper_service import ScraperService
 
 
 class LinkManagerApp:
@@ -52,15 +53,22 @@ class LinkManagerApp:
             self._profile_repository, self._browser_service
         )
 
+        # Create scraper service
+        self._scraper_service = ScraperService(self._profile_service)
+
     def _setup_window(self) -> None:
         """Setup main window properties."""
         self._root.title(f"linker v{__version__}")
-        self._root.geometry("900x700")
-        self._root.minsize(700, 500)
+        self._root.geometry("1450x800")
+        self._root.minsize(1200, 600)
 
     def _create_controller(self) -> None:
         """Create the main controller (presentation layer)."""
-        self._controller = ProfileController(self._root, self._profile_service)
+        self._controller = ProfileController(
+            self._root,
+            self._profile_service,
+            self._scraper_service
+        )
 
     def run(self) -> None:
         """Start the application."""
