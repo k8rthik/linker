@@ -16,6 +16,7 @@ from ui.dialogs.profile_manager_dialog import ProfileManagerDialog
 from ui.dialogs.analytics_dialog import AnalyticsDialog
 from ui.dialogs.help_dialog import HelpDialog
 from ui.dialogs.scraper_status_dialog import ScraperStatusDialog
+from ui.dialogs.archived_links_dialog import ArchivedLinksDialog
 from utils.title_fetcher import TitleFetcher
 
 
@@ -133,6 +134,7 @@ class ProfileController:
         help_menu.add_command(label="Keyboard Shortcuts", command=self._show_help)
         help_menu.add_separator()
         help_menu.add_command(label="Scraper Status", command=self._show_scraper_status)
+        help_menu.add_command(label="View Archived Links", command=self._show_archived_links)
 
     def _setup_callbacks(self) -> None:
         """Setup callbacks for UI components."""
@@ -180,6 +182,7 @@ class ProfileController:
         self._root.bind("l", self._on_vim_key("l", self._focus_table))
         self._root.bind("/", self._on_vim_key("/", lambda: self._search_bar.focus()))
         self._root.bind("?", self._on_vim_key("?", self._show_help))
+        self._root.bind("S", self._on_vim_key("S", self._toggle_scraper_pause))
 
         # Platform-independent shortcuts
         self._root.bind("<Return>", lambda e: self._edit_link())
@@ -420,7 +423,7 @@ class ProfileController:
             func()
 
     def _undo_delete(self) -> None:
-        """Undo the last delete operation."""
+        """Undo the last delete operation by unarchiving links."""
         if not self._undo_stack:
             messagebox.showinfo("Undo", "Nothing to undo.")
             return
@@ -428,20 +431,14 @@ class ProfileController:
         # Pop the last delete operation
         indices, links = self._undo_stack.pop()
 
-        # Re-insert the links at their original positions
-        all_links = self._profile_service.get_links()
+        # Unarchive the links (they're still in the profile, just archived)
+        for link in links:
+            link.unarchive()
 
-        # Sort indices in reverse to maintain correct positions during insertion
-        for index, link in sorted(zip(indices, links), reverse=True):
-            # Insert at the original position (clamped to valid range)
-            insert_pos = min(index, len(all_links))
-            all_links.insert(insert_pos, link)
-
-        # Update the profile with restored links
+        # Save and notify
         current_profile = self._profile_service.get_current_profile()
         if current_profile:
-            current_profile.links = all_links
-            self._profile_service._repository.update(current_profile)
+            self._profile_service._save_current_profile()
             self._profile_service._notify_observers()
 
         messagebox.showinfo("Undo", f"Restored {len(links)} link(s).")
@@ -753,7 +750,7 @@ class ProfileController:
     def _show_scraper_status(self) -> None:
         """Show or create the scraper status dialog."""
         if self._scraper_status_dialog is None or not tk.Toplevel.winfo_exists(self._scraper_status_dialog._dialog):
-            self._scraper_status_dialog = ScraperStatusDialog(self._root)
+            self._scraper_status_dialog = ScraperStatusDialog(self._root, self._scraper_service)
             # Load last run info from scraper service
             if self._scraper_service:
                 info = self._scraper_service.get_last_run_info()
@@ -764,6 +761,38 @@ class ProfileController:
                     self._scraper_status_dialog.add_log(
                         f"Found {info.get('last_url_count', 0)} URLs", "→"
                     )
+                if info.get('paused'):
+                    self._scraper_status_dialog.add_log("Scraper is paused", "⏸")
         else:
             # Bring existing dialog to front
             self._scraper_status_dialog._dialog.lift()
+
+    def _show_archived_links(self) -> None:
+        """Show archived links dialog."""
+        current_profile = self._profile_service.get_current_profile()
+        if not current_profile:
+            messagebox.showinfo("No Profile", "No profile is currently loaded.")
+            return
+
+        archived_links = current_profile.get_archived_links()
+        if not archived_links:
+            messagebox.showinfo("No Archived Links", "There are no archived links in the current profile.")
+            return
+
+        def on_restore(restored_links: List[Link]) -> None:
+            """Handle restoration of archived links."""
+            # Save changes
+            self._profile_service._save_current_profile()
+            self._profile_service._notify_observers()
+
+        ArchivedLinksDialog(self._root, archived_links, on_restore)
+
+    def _toggle_scraper_pause(self) -> None:
+        """Toggle the scraper pause state."""
+        if not self._scraper_service:
+            messagebox.showinfo("Scraper", "Scraper service is not available.")
+            return
+
+        is_paused = self._scraper_service.toggle_pause()
+        status = "paused" if is_paused else "resumed"
+        messagebox.showinfo("Scraper", f"Scraper {status}.")
