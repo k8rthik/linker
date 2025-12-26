@@ -112,10 +112,16 @@ class ProfileService:
     
     # Link management methods for current profile
     def get_links(self) -> List[Link]:
-        """Get all links from the current profile."""
+        """Get all non-archived links from the current profile."""
         if not self._current_profile:
             return []
         return self._current_profile.links
+
+    def get_all_links_including_archived(self) -> List[Link]:
+        """Get all links from the current profile including archived ones."""
+        if not self._current_profile:
+            return []
+        return self._current_profile.all_links
     
     def add_link(self, link: Link) -> None:
         """Add a link to the current profile."""

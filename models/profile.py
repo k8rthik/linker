@@ -25,8 +25,14 @@ class Profile:
     
     @property
     def links(self) -> List[Link]:
+        """Get only non-archived links."""
+        return [link for link in self._links if not link.is_archived()]
+
+    @property
+    def all_links(self) -> List[Link]:
+        """Get all links including archived ones."""
         return self._links.copy()
-    
+
     @links.setter
     def links(self, value: List[Link]) -> None:
         self._links = value or []
@@ -48,9 +54,11 @@ class Profile:
         self._links.append(link)
     
     def remove_link(self, index: int) -> bool:
-        """Remove a link by index. Returns True if successful."""
-        if 0 <= index < len(self._links):
-            del self._links[index]
+        """Archive a link by index (soft delete). Returns True if successful."""
+        # Get only non-archived links to find the correct link
+        non_archived = [link for link in self._links if not link.is_archived()]
+        if 0 <= index < len(non_archived):
+            non_archived[index].archive()
             return True
         return False
     
@@ -62,13 +70,17 @@ class Profile:
         return False
     
     def get_link_count(self) -> int:
-        """Get the number of links in this profile."""
-        return len(self._links)
-    
+        """Get the number of non-archived links in this profile."""
+        return sum(1 for link in self._links if not link.is_archived())
+
     def get_favorite_count(self) -> int:
-        """Get the number of favorite links in this profile."""
-        return sum(1 for link in self._links if link.favorite)
-    
+        """Get the number of non-archived favorite links in this profile."""
+        return sum(1 for link in self._links if link.favorite and not link.is_archived())
+
+    def get_archived_links(self) -> List[Link]:
+        """Get all archived links in this profile."""
+        return [link for link in self._links if link.is_archived()]
+
     def to_dict(self) -> dict:
         """Convert profile to dictionary for serialization."""
         return {

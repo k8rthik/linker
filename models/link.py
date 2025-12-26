@@ -5,14 +5,17 @@ from typing import Optional
 class Link:
     """Model representing a link with metadata."""
     
-    def __init__(self, name: str, url: str, favorite: bool = False, 
-                 date_added: Optional[str] = None, last_opened: Optional[str] = None):
+    def __init__(self, name: str, url: str, favorite: bool = False,
+                 date_added: Optional[str] = None, last_opened: Optional[str] = None,
+                 open_count: int = 0, archived: bool = False):
         self._validate_required_fields(name, url)
         self._name = name.strip()
         self._url = url.strip()
         self._favorite = favorite
         self._date_added = date_added or datetime.now().isoformat()
         self._last_opened = last_opened
+        self._open_count = max(0, open_count)  # Ensure non-negative
+        self._archived = archived
     
     @property
     def name(self) -> str:
@@ -60,10 +63,27 @@ class Link:
         if value is not None:
             self._validate_datetime(value)
         self._last_opened = value
-    
+
+    @property
+    def open_count(self) -> int:
+        return self._open_count
+
+    @open_count.setter
+    def open_count(self, value: int) -> None:
+        self._open_count = max(0, value)  # Ensure non-negative
+
+    @property
+    def archived(self) -> bool:
+        return self._archived
+
+    @archived.setter
+    def archived(self, value: bool) -> None:
+        self._archived = value
+
     def mark_as_opened(self) -> None:
-        """Mark the link as opened with current timestamp."""
+        """Mark the link as opened with current timestamp and increment open count."""
         self._last_opened = datetime.now().isoformat()
+        self._open_count += 1
     
     def toggle_favorite(self) -> None:
         """Toggle the favorite status of the link."""
@@ -72,7 +92,19 @@ class Link:
     def is_unread(self) -> bool:
         """Check if the link has never been opened."""
         return self._last_opened is None
-    
+
+    def archive(self) -> None:
+        """Archive (soft delete) the link."""
+        self._archived = True
+
+    def unarchive(self) -> None:
+        """Restore an archived link."""
+        self._archived = False
+
+    def is_archived(self) -> bool:
+        """Check if the link is archived."""
+        return self._archived
+
     def to_dict(self) -> dict:
         """Convert link to dictionary for serialization."""
         return {
@@ -80,9 +112,11 @@ class Link:
             "url": self._url,
             "favorite": self._favorite,
             "date_added": self._date_added,
-            "last_opened": self._last_opened
+            "last_opened": self._last_opened,
+            "open_count": self._open_count,
+            "archived": self._archived
         }
-    
+
     @classmethod
     def from_dict(cls, data: dict) -> 'Link':
         """Create link from dictionary."""
@@ -91,7 +125,9 @@ class Link:
             url=data.get("url", ""),
             favorite=data.get("favorite", False),
             date_added=data.get("date_added"),
-            last_opened=data.get("last_opened")
+            last_opened=data.get("last_opened"),
+            open_count=data.get("open_count", 0),
+            archived=data.get("archived", False)
         )
     
     def get_formatted_url(self) -> str:
