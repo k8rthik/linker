@@ -27,6 +27,7 @@ class ScraperService:
     # Default configuration
     DEFAULT_CONFIG = {
         "enabled": True,
+        "paused": False,
         "target_domain": "fyptt.to",
         "request_delay": 1.0,
         "user_agent": "*",
@@ -69,8 +70,11 @@ class ScraperService:
             print(f"Warning: Failed to save scraper state: {e}")
 
     def should_run_scrape(self) -> bool:
-        """Check if scraper should run based on time elapsed since last run."""
+        """Check if scraper should run based on time elapsed since last run and pause state."""
         if not self._state.get("enabled", True):
+            return False
+
+        if self._state.get("paused", False):
             return False
 
         last_run = self._state.get("last_run_timestamp")
@@ -296,14 +300,15 @@ class ScraperService:
     def add_scraped_links_to_profile(self, urls: List[str]) -> Dict:
         """
         Add scraped URLs to current profile with duplicate detection.
+        Checks against both active and archived links to prevent duplicates.
         Returns dict with counts: new_links, skipped_duplicates.
         """
         if not urls:
             return {"new_links": 0, "skipped_duplicates": 0}
 
-        # Get current profile's links
-        current_links = self._profile_service.get_links()
-        existing_urls = {self._normalize_url_for_comparison(link.url) for link in current_links}
+        # Get current profile's links (including archived for deduplication)
+        all_links = self._profile_service.get_all_links_including_archived()
+        existing_urls = {self._normalize_url_for_comparison(link.url) for link in all_links}
 
         new_links_count = 0
         skipped_count = 0
@@ -346,11 +351,35 @@ class ScraperService:
         url = url.replace('://www.', '://')
         return url
 
+    def pause(self) -> None:
+        """Pause the background scraper."""
+        self._state["paused"] = True
+        self._save_state()
+
+    def resume(self) -> None:
+        """Resume the background scraper."""
+        self._state["paused"] = False
+        self._save_state()
+
+    def is_paused(self) -> bool:
+        """Check if the scraper is paused."""
+        return self._state.get("paused", False)
+
+    def toggle_pause(self) -> bool:
+        """Toggle pause state. Returns new pause state."""
+        new_state = not self.is_paused()
+        if new_state:
+            self.pause()
+        else:
+            self.resume()
+        return new_state
+
     def get_last_run_info(self) -> Dict:
         """Return information about the last scrape run."""
         return {
             "last_run": self._state.get("last_run_timestamp"),
             "last_url_count": self._state.get("last_url_count", 0),
             "total_runs": self._state.get("total_runs", 0),
-            "target_domain": self._state.get("target_domain", "fyptt.to")
+            "target_domain": self._state.get("target_domain", "fyptt.to"),
+            "paused": self._state.get("paused", False)
         }

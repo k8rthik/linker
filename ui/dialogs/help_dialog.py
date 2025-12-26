@@ -77,6 +77,8 @@ class HelpDialog:
             ("z", "Undo last delete"),
             ("l", "Focus link list"),
             ("/", "Focus search bar"),
+            ("?", "Show this help dialog"),
+            ("S (Shift+s)", "Toggle scraper pause/resume"),
         ]
 
         for key, description in vim_shortcuts:
@@ -178,9 +180,10 @@ class HelpDialog:
             "• Profile management with isolated link collections\n"
             "• Vim-style keyboard shortcuts for fast navigation\n"
             "• Automatic page title fetching\n"
-            "• Background web scraping (fyptt.to)\n"
+            "• Background web scraping (fyptt.to) with pause/resume\n"
             "• Link analytics and statistics\n"
             "• Import/export functionality\n"
+            "• Soft delete with archive (view & restore deleted links)\n"
             "• Undo delete (last 20 operations)\n"
         )
 

@@ -10,13 +10,15 @@ from datetime import datetime
 class ScraperStatusDialog:
     """Dialog for showing real-time scraper status and progress."""
 
-    def __init__(self, parent: tk.Tk):
+    def __init__(self, parent: tk.Tk, scraper_service=None):
         self._parent = parent
+        self._scraper_service = scraper_service
         self._dialog = None
         self._status_label = None
         self._progress_label = None
         self._details_text = None
         self._progress_bar = None
+        self._pause_btn = None
         self._is_active = False
         self._create_dialog()
 
@@ -68,6 +70,11 @@ class ScraperStatusDialog:
         # Buttons
         btn_frame = tk.Frame(self._dialog)
         btn_frame.pack(pady=(0, 10))
+
+        # Pause/Resume button
+        pause_text = "Resume" if (self._scraper_service and self._scraper_service.is_paused()) else "Pause"
+        self._pause_btn = tk.Button(btn_frame, text=pause_text, command=self._toggle_pause, width=10)
+        self._pause_btn.pack(side=tk.LEFT, padx=5)
 
         self._close_btn = tk.Button(btn_frame, text="Close", command=self._dialog.destroy, width=10)
         self._close_btn.pack(side=tk.LEFT, padx=5)
@@ -133,6 +140,21 @@ class ScraperStatusDialog:
         """Clear the details log."""
         if self._details_text:
             self._details_text.delete("1.0", tk.END)
+
+    def _toggle_pause(self) -> None:
+        """Toggle the pause state of the scraper."""
+        if not self._scraper_service:
+            return
+
+        is_paused = self._scraper_service.toggle_pause()
+        if is_paused:
+            self._pause_btn.config(text="Resume")
+            self.add_log("Scraper paused", "⏸")
+            self.update_status("Paused", "#ff9900")
+        else:
+            self._pause_btn.config(text="Pause")
+            self.add_log("Scraper resumed", "▶")
+            self.update_status("Active", "#00aa00")
 
     def is_active(self) -> bool:
         """Check if scraper is currently active."""
