@@ -135,7 +135,7 @@ class ProfileController:
         self._link_list_view.set_sort_callback(self._on_sort_requested)
     
     def _setup_keyboard_shortcuts(self) -> None:
-        """Setup global keyboard shortcuts."""
+        """Setup vim-style keyboard shortcuts."""
         self._search_bar.bind_keyboard_shortcuts(self._root)
         self._link_list_view.bind_keyboard_shortcuts(self._root)
 
@@ -146,37 +146,42 @@ class ProfileController:
         for num in range(10):
             self._root.bind(str(num), self._on_number_key_pressed)
 
-        # Additional shortcuts
-        import sys
-        if sys.platform == "darwin":
-            # macOS shortcuts (using Command key)
-            self._root.bind("<Command-d>", lambda e: self._execute_with_multiplier(self._toggle_favorite))
-            self._root.bind("<Command-e>", lambda e: self._execute_with_multiplier(self._toggle_read_status))
-            self._root.bind("<Command-r>", lambda e: self._execute_with_multiplier(self._open_random))
-            self._root.bind("<Command-Shift-F>", lambda e: self._execute_with_multiplier(self._open_random_favorite))
-            self._root.bind("<Command-u>", lambda e: self._execute_with_multiplier(self._open_random_unread))
-            self._root.bind("<Command-l>", lambda e: self._focus_table())
-            self._root.bind("<Command-p>", lambda e: self._on_manage_profiles())
-            self._root.bind("<Command-n>", lambda e: self._add_links())
-            self._root.bind("<Command-z>", lambda e: self._undo_delete())
-            self._root.bind("<Command-Shift-t>", lambda e: self._manual_scan_titles())
-        else:
-            # Windows/Linux shortcuts (using Ctrl key)
-            self._root.bind("<Control-d>", lambda e: self._execute_with_multiplier(self._toggle_favorite))
-            self._root.bind("<Control-e>", lambda e: self._execute_with_multiplier(self._toggle_read_status))
-            self._root.bind("<Control-r>", lambda e: self._execute_with_multiplier(self._open_random))
-            self._root.bind("<Control-Shift-F>", lambda e: self._execute_with_multiplier(self._open_random_favorite))
-            self._root.bind("<Control-u>", lambda e: self._execute_with_multiplier(self._open_random_unread))
-            self._root.bind("<Control-l>", lambda e: self._focus_table())
-            self._root.bind("<Control-p>", lambda e: self._on_manage_profiles())
-            self._root.bind("<Control-n>", lambda e: self._add_links())
-            self._root.bind("<Control-z>", lambda e: self._undo_delete())
-            self._root.bind("<Control-Shift-t>", lambda e: self._manual_scan_titles())
+        # Vim-style single-key shortcuts (only when search bar not focused)
+        self._root.bind("f", self._on_vim_key("f", lambda: self._execute_with_multiplier(self._toggle_favorite)))
+        self._root.bind("r", self._on_vim_key("r", lambda: self._execute_with_multiplier(self._toggle_read_status)))
+        self._root.bind("o", self._on_vim_key("o", lambda: self._execute_with_multiplier(self._open_random)))
+        self._root.bind("O", self._on_vim_key("O", lambda: self._execute_with_multiplier(self._open_random_favorite)))
+        self._root.bind("u", self._on_vim_key("u", lambda: self._execute_with_multiplier(self._open_random_unread)))
+        self._root.bind("d", self._on_vim_key("d", self._on_delete_key_pressed))
+        self._root.bind("e", self._on_vim_key("e", self._edit_link))
+        self._root.bind("a", self._on_vim_key("a", self._add_links))
+        self._root.bind("n", self._on_vim_key("n", self._add_links))
+        self._root.bind("p", self._on_vim_key("p", self._on_manage_profiles))
+        self._root.bind("t", self._on_vim_key("t", self._manual_scan_titles))
+        self._root.bind("z", self._on_vim_key("z", self._undo_delete))
+        self._root.bind("l", self._on_vim_key("l", self._focus_table))
+        self._root.bind("/", self._on_vim_key("/", lambda: self._search_bar.focus()))
 
         # Platform-independent shortcuts
         self._root.bind("<Return>", lambda e: self._edit_link())
         self._root.bind("<Tab>", self._on_tab_pressed)
-    
+
+    def _on_vim_key(self, key: str, action):
+        """
+        Create a vim-style key handler that only executes when search bar is not focused.
+        Returns a function suitable for bind().
+        """
+        def handler(event):
+            # Don't handle vim keys when search bar has focus (allow typing)
+            if self._search_bar.has_focus():
+                return
+
+            # Execute the action
+            action()
+            return "break"  # Prevent default behavior
+
+        return handler
+
     def _refresh_view(self) -> None:
         """Refresh the view with current data."""
         # Update profile selector
