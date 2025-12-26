@@ -14,6 +14,8 @@ from ui.dialogs.edit_dialog import EditLinkDialog
 from ui.dialogs.add_links_dialog import AddLinksDialog
 from ui.dialogs.profile_manager_dialog import ProfileManagerDialog
 from ui.dialogs.analytics_dialog import AnalyticsDialog
+from ui.dialogs.help_dialog import HelpDialog
+from ui.dialogs.scraper_status_dialog import ScraperStatusDialog
 from utils.title_fetcher import TitleFetcher
 
 
@@ -45,6 +47,7 @@ class ProfileController:
         self._profile_selector: Optional[ProfileSelector] = None
         self._search_bar: Optional[SearchBar] = None
         self._link_list_view: Optional[LinkListView] = None
+        self._scraper_status_dialog: Optional[ScraperStatusDialog] = None
         
         # Register as observer
         self._profile_service.add_observer(self._on_data_changed)
@@ -64,6 +67,9 @@ class ProfileController:
     
     def _create_ui(self) -> None:
         """Create the user interface."""
+        # Menu bar
+        self._create_menu_bar()
+
         # Main container
         container = tk.Frame(self._root)
         container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -115,7 +121,19 @@ class ProfileController:
         
         tk.Button(right_frame, text="Import Links", command=self._import_links).pack(side=tk.LEFT, padx=5)
         tk.Button(right_frame, text="Export Links", command=self._export_links).pack(side=tk.LEFT)
-    
+
+    def _create_menu_bar(self) -> None:
+        """Create the menu bar."""
+        menubar = tk.Menu(self._root)
+        self._root.config(menu=menubar)
+
+        # Help menu
+        help_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Help", menu=help_menu)
+        help_menu.add_command(label="Keyboard Shortcuts", command=self._show_help)
+        help_menu.add_separator()
+        help_menu.add_command(label="Scraper Status", command=self._show_scraper_status)
+
     def _setup_callbacks(self) -> None:
         """Setup callbacks for UI components."""
         # Profile selector callbacks
@@ -161,6 +179,7 @@ class ProfileController:
         self._root.bind("z", self._on_vim_key("z", self._undo_delete))
         self._root.bind("l", self._on_vim_key("l", self._focus_table))
         self._root.bind("/", self._on_vim_key("/", lambda: self._search_bar.focus()))
+        self._root.bind("?", self._on_vim_key("?", self._show_help))
 
         # Platform-independent shortcuts
         self._root.bind("<Return>", lambda e: self._edit_link())
@@ -535,6 +554,11 @@ class ProfileController:
                 self._root.after(3600000, self._run_scraper_if_needed)
             return
 
+        # Show scraper status if dialog exists
+        if self._scraper_status_dialog and tk.Toplevel.winfo_exists(self._scraper_status_dialog._dialog):
+            domain = self._scraper_service._state.get("target_domain", "fyptt.to")
+            self._scraper_status_dialog.start_scraping(domain)
+
         def scrape_in_background():
             result = self._scraper_service.run_scheduled_scrape()
             # Schedule UI update on main thread
@@ -552,6 +576,14 @@ class ProfileController:
         """Handle scrape completion."""
         if result.get('new_links', 0) > 0:
             print(f"Scraper: Added {result['new_links']} new links from {result.get('domain', 'unknown')}")
+
+        # Update scraper status dialog if it exists
+        if self._scraper_status_dialog and tk.Toplevel.winfo_exists(self._scraper_status_dialog._dialog):
+            self._scraper_status_dialog.scraping_complete(
+                urls_found=result.get('total_urls_found', 0),
+                links_added=result.get('new_links', 0),
+                duplicates=result.get('skipped_duplicates', 0)
+            )
 
     def _edit_link(self) -> None:
         """Show edit link dialog."""
@@ -713,3 +745,25 @@ class ProfileController:
         if current_profile:
             dialog = AnalyticsDialog(self._root, current_profile, all_profiles)
             dialog.show()
+
+    def _show_help(self) -> None:
+        """Show keyboard shortcuts help dialog."""
+        HelpDialog(self._root)
+
+    def _show_scraper_status(self) -> None:
+        """Show or create the scraper status dialog."""
+        if self._scraper_status_dialog is None or not tk.Toplevel.winfo_exists(self._scraper_status_dialog._dialog):
+            self._scraper_status_dialog = ScraperStatusDialog(self._root)
+            # Load last run info from scraper service
+            if self._scraper_service:
+                info = self._scraper_service.get_last_run_info()
+                if info.get('last_run'):
+                    self._scraper_status_dialog.add_log(
+                        f"Last run: {info['last_run']}", "ℹ"
+                    )
+                    self._scraper_status_dialog.add_log(
+                        f"Found {info.get('last_url_count', 0)} URLs", "→"
+                    )
+        else:
+            # Bring existing dialog to front
+            self._scraper_status_dialog._dialog.lift()
