@@ -9,12 +9,54 @@ import sys
 import shutil
 from pathlib import Path
 
-# Import version
-try:
-    from __version__ import __version__
-    APP_VERSION = __version__
-except ImportError:
-    APP_VERSION = "0.0.0"
+
+def get_version_from_git():
+    """
+    Get version intelligently from git.
+
+    Returns version string based on:
+    1. Latest git tag (if exists)
+    2. Tag + commit count + short hash (if commits after tag)
+    3. Short hash only (if no tags)
+    4. Fallback to __version__.py (if git fails)
+    """
+    try:
+        # Try to get version from git describe
+        result = subprocess.run(
+            ['git', 'describe', '--tags', '--always', '--dirty'],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+
+        if result.returncode == 0 and result.stdout.strip():
+            git_version = result.stdout.strip()
+
+            # Clean up the version string
+            # Remove 'v' prefix if present
+            if git_version.startswith('v'):
+                git_version = git_version[1:]
+
+            # If it's just a tag, use it as-is
+            # If it has commits after tag (e.g., "0.3.1-5-gabcdef"), keep it
+            return git_version
+
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+
+    # Fallback to __version__.py
+    try:
+        from __version__ import __version__
+        return __version__
+    except ImportError:
+        pass
+
+    # Ultimate fallback
+    return "0.0.0-unknown"
+
+
+# Get version intelligently
+APP_VERSION = get_version_from_git()
 
 def clean_build():
     """Clean previous builds."""
