@@ -756,6 +756,16 @@ class ProfileController:
         """Show or create the scraper status dialog."""
         if self._scraper_status_dialog is None or not tk.Toplevel.winfo_exists(self._scraper_status_dialog._dialog):
             self._scraper_status_dialog = ScraperStatusDialog(self._root, self._scraper_service)
+
+            # Connect scraper logging to dialog
+            if self._scraper_service:
+                # Create a thread-safe logging callback
+                def log_to_dialog(message: str, prefix: str = "•"):
+                    # Schedule log update on main thread
+                    self._root.after(0, lambda: self._scraper_status_dialog.add_log(message, prefix))
+
+                self._scraper_service.set_log_callback(log_to_dialog)
+
             # Load last run info from scraper service
             if self._scraper_service:
                 info = self._scraper_service.get_last_run_info()

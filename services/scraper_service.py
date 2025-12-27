@@ -43,6 +43,7 @@ class ScraperService:
         self._profile_service = profile_service
         self._state_file = get_data_file_path("scraper_state.json")
         self._state = self._load_state()
+        self._log_callback = None  # Optional callback for logging scraper activity
 
     def _load_state(self) -> Dict:
         """Load state from JSON file, merge with defaults."""
@@ -68,6 +69,21 @@ class ScraperService:
                 json.dump(self._state, f, indent=4)
         except IOError as e:
             print(f"Warning: Failed to save scraper state: {e}")
+
+    def set_log_callback(self, callback) -> None:
+        """Set a callback function for logging scraper activity.
+
+        Args:
+            callback: Function that takes (message: str, prefix: str) as arguments
+        """
+        self._log_callback = callback
+
+    def _log(self, message: str, prefix: str = "•") -> None:
+        """Internal logging helper."""
+        if self._log_callback:
+            self._log_callback(message, prefix)
+        else:
+            print(f"[Scraper] {message}")
 
     def should_run_scrape(self) -> bool:
         """Check if scraper should run based on time elapsed since last run and pause state."""
@@ -132,6 +148,9 @@ class ScraperService:
         user_agent = self._state.get("user_agent", "*")
         max_urls = self._state.get("max_urls_per_run", 500)
 
+        self._log(f"Starting scrape of {domain}", "▶")
+        self._log(f"Max URLs: {max_urls}, Delay: {request_delay}s", "→")
+
         # Setup robots.txt parser
         robots_url = f"https://{domain}/robots.txt"
         rp = RobotFileParser()
@@ -139,16 +158,28 @@ class ScraperService:
 
         try:
             rp.read()
-        except Exception:
+            self._log("robots.txt loaded successfully", "✓")
+        except Exception as e:
             # If robots.txt fails, continue anyway (assume allowed)
-            pass
+            self._log(f"robots.txt not available, continuing anyway", "⚠")
 
         seen_urls = {seed_url}
         to_crawl = [seed_url]
         headers = {"User-Agent": user_agent}
+        pages_crawled = 0
 
         while to_crawl and len(seen_urls) < max_urls:
+            # Check if scraper has been paused mid-operation
+            if self.is_paused():
+                self._log("Scraper paused mid-operation, stopping early", "⏸")
+                break
+
             current = to_crawl.pop(0)
+            pages_crawled += 1
+
+            # Log progress every 10 pages
+            if pages_crawled % 10 == 0:
+                self._log(f"Crawled {pages_crawled} pages, found {len(seen_urls)} URLs", "→")
 
             # Check robots.txt permission
             try:
@@ -159,7 +190,8 @@ class ScraperService:
 
             try:
                 resp = requests.get(current, headers=headers, timeout=10)
-            except requests.RequestException:
+            except requests.RequestException as e:
+                self._log(f"Request failed for {current[:50]}...", "⚠")
                 continue
 
             content_type = resp.headers.get("Content-Type", "")
@@ -172,6 +204,7 @@ class ScraperService:
                 continue
 
             # Extract all links
+            links_on_page = 0
             for a_tag in soup.find_all("a", href=True):
                 raw_href = a_tag["href"]
                 abs_url = self._normalize_link(current, raw_href)
@@ -201,10 +234,13 @@ class ScraperService:
                 if abs_url not in seen_urls:
                     seen_urls.add(abs_url)
                     to_crawl.append(abs_url)
+                    links_on_page += 1
 
             # Delay between requests
             time.sleep(request_delay)
 
+        self._log(f"Scraping complete! Crawled {pages_crawled} pages", "✓")
+        self._log(f"Total URLs discovered: {len(seen_urls)}", "✓")
         return list(seen_urls)
 
     def _is_same_domain(self, url: str, domain: str) -> bool:
@@ -306,9 +342,12 @@ class ScraperService:
         if not urls:
             return {"new_links": 0, "skipped_duplicates": 0}
 
+        self._log(f"Processing {len(urls)} discovered URLs", "→")
+
         # Get current profile's links (including archived for deduplication)
         all_links = self._profile_service.get_all_links_including_archived()
         existing_urls = {self._normalize_url_for_comparison(link.url) for link in all_links}
+        self._log(f"Current profile has {len(all_links)} total links", "→")
 
         new_links_to_add = []
         skipped_count = 0
@@ -328,7 +367,11 @@ class ScraperService:
 
         # Add all new links in a single batch operation (one save, one UI update)
         if new_links_to_add:
+            self._log(f"Adding {len(new_links_to_add)} new links to profile", "✓")
             self._profile_service.add_links_batch(new_links_to_add)
+
+        if skipped_count > 0:
+            self._log(f"Skipped {skipped_count} duplicate URLs", "→")
 
         return {
             "new_links": len(new_links_to_add),
@@ -358,11 +401,13 @@ class ScraperService:
         """Pause the background scraper."""
         self._state["paused"] = True
         self._save_state()
+        self._log("Scraper paused", "⏸")
 
     def resume(self) -> None:
         """Resume the background scraper."""
         self._state["paused"] = False
         self._save_state()
+        self._log("Scraper resumed", "▶")
 
     def is_paused(self) -> bool:
         """Check if the scraper is paused."""
