@@ -310,7 +310,7 @@ class ScraperService:
         all_links = self._profile_service.get_all_links_including_archived()
         existing_urls = {self._normalize_url_for_comparison(link.url) for link in all_links}
 
-        new_links_count = 0
+        new_links_to_add = []
         skipped_count = 0
 
         for url in urls:
@@ -323,12 +323,15 @@ class ScraperService:
 
             # Create new link with URL as temporary name (title fetcher will update)
             link = Link(name=url, url=url)
-            self._profile_service.add_link(link)
+            new_links_to_add.append(link)
             existing_urls.add(normalized_url)
-            new_links_count += 1
+
+        # Add all new links in a single batch operation (one save, one UI update)
+        if new_links_to_add:
+            self._profile_service.add_links_batch(new_links_to_add)
 
         return {
-            "new_links": new_links_count,
+            "new_links": len(new_links_to_add),
             "skipped_duplicates": skipped_count
         }
 

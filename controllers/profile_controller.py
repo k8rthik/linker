@@ -450,10 +450,9 @@ class ProfileController:
             if not urls:
                 return
 
-            # First, add all links immediately with URL as name
-            for url in urls:
-                link = Link(url, url)  # Temporary: name = url
-                self._profile_service.add_link(link)
+            # First, add all links immediately with URL as name (in a batch)
+            new_links = [Link(url, url) for url in urls]  # Temporary: name = url
+            self._profile_service.add_links_batch(new_links)
 
             # Then, asynchronously fetch and update titles for those that need it
             self._background_fetch_titles(urls)
@@ -486,14 +485,20 @@ class ProfileController:
         thread.start()
 
     def _apply_title_updates(self, updates: List[Tuple[int, str]]) -> None:
-        """Apply title updates to links."""
+        """Apply title updates to links in a batch."""
         all_links = self._profile_service.get_links()
 
+        # Prepare batch updates (index, updated_link) tuples
+        batch_updates = []
         for index, new_title in updates:
             if index < len(all_links):
                 link = all_links[index]
                 link.name = new_title
-                self._profile_service.update_link(index, link)
+                batch_updates.append((index, link))
+
+        # Apply all updates in a single batch (one save, one UI refresh)
+        if batch_updates:
+            self._profile_service.update_links_batch(batch_updates)
 
     def _scan_and_update_titles(self) -> None:
         """Background scan of existing links to update titles where needed."""

@@ -129,6 +129,14 @@ class ProfileService:
             self._current_profile.add_link(link)
             self._save_current_profile()
             self._notify_observers()
+
+    def add_links_batch(self, links: List[Link]) -> None:
+        """Add multiple links to the current profile in a batch (single save, single notification)."""
+        if self._current_profile and links:
+            for link in links:
+                self._current_profile.add_link(link)
+            self._save_current_profile()
+            self._notify_observers()
     
     def update_link(self, index: int, link: Link) -> bool:
         """Update a link in the current profile."""
@@ -139,6 +147,30 @@ class ProfileService:
                 self._notify_observers()
             return success
         return False
+
+    def update_links_batch(self, updates: List[tuple]) -> bool:
+        """Update multiple links in a batch (single save, single notification).
+
+        Args:
+            updates: List of (index, link) tuples
+
+        Returns:
+            True if all updates succeeded, False otherwise
+        """
+        if not self._current_profile or not updates:
+            return False
+
+        all_succeeded = True
+        for index, link in updates:
+            success = self._current_profile.update_link(index, link)
+            if not success:
+                all_succeeded = False
+
+        if all_succeeded:
+            self._save_current_profile()
+            self._notify_observers()
+
+        return all_succeeded
     
     def delete_links(self, indices: List[int]) -> bool:
         """Delete multiple links from the current profile."""
