@@ -286,38 +286,112 @@ class ImportExportService:
         - Merge favorite status (true if either is true)
         - Keep earliest date_added
         - Keep most recent last_opened
+        - Sum open_count from both
+        - Merge all analytics fields intelligently
         """
         # Choose the better name (prefer non-URL names and longer names)
         merged_name = existing_link.name
-        if (len(new_link.name) > len(existing_link.name) and 
+        if (len(new_link.name) > len(existing_link.name) and
             not new_link.name.startswith(('http://', 'https://'))):
             merged_name = new_link.name
-        elif (existing_link.name.startswith(('http://', 'https://')) and 
+        elif (existing_link.name.startswith(('http://', 'https://')) and
               not new_link.name.startswith(('http://', 'https://'))):
             merged_name = new_link.name
-        
+
         # Merge favorite status (true if either is true)
         merged_favorite = existing_link.favorite or new_link.favorite
-        
+
         # Keep earliest date_added
         merged_date_added = existing_link.date_added
-        if (new_link.date_added and 
+        if (new_link.date_added and
             (not existing_link.date_added or new_link.date_added < existing_link.date_added)):
             merged_date_added = new_link.date_added
-        
+
         # Keep most recent last_opened
         merged_last_opened = existing_link.last_opened
-        if (new_link.last_opened and 
+        if (new_link.last_opened and
             (not existing_link.last_opened or new_link.last_opened > existing_link.last_opened)):
             merged_last_opened = new_link.last_opened
-        
-        # Create merged link
+
+        # Merge open_count - sum both counts
+        merged_open_count = existing_link.open_count + new_link.open_count
+
+        # Merge archived status - true if either is archived
+        merged_archived = existing_link.archived or new_link.archived
+
+        # Merge first_opened - keep earliest
+        merged_first_opened = existing_link.first_opened
+        if (new_link.first_opened and
+            (not existing_link.first_opened or new_link.first_opened < existing_link.first_opened)):
+            merged_first_opened = new_link.first_opened
+
+        # Merge favorite_toggle_count - sum both counts
+        merged_toggle_count = existing_link.favorite_toggle_count + new_link.favorite_toggle_count
+
+        # Keep most recent last_modified
+        merged_last_modified = existing_link.last_modified
+        if (new_link.last_modified and
+            (not existing_link.last_modified or new_link.last_modified > existing_link.last_modified)):
+            merged_last_modified = new_link.last_modified
+
+        # Use time_to_first_open from whichever has first_opened
+        merged_time_to_first_open = existing_link.time_to_first_open
+        if merged_first_opened == new_link.first_opened:
+            merged_time_to_first_open = new_link.time_to_first_open
+
+        # Sum opens_last_30_days
+        merged_opens_30_days = existing_link.opens_last_30_days + new_link.opens_last_30_days
+
+        # Merge tags - union of both lists
+        merged_tags = list(set(existing_link.tags + new_link.tags))
+
+        # Prefer existing category, fallback to new
+        merged_category = existing_link.category or new_link.category
+
+        # Keep better notes (longer, non-empty)
+        merged_notes = existing_link.notes
+        if len(new_link.notes) > len(existing_link.notes):
+            merged_notes = new_link.notes
+
+        # Prefer existing source, fallback to new
+        merged_source = existing_link.source or new_link.source
+
+        # Keep most recent health check data
+        merged_link_status = existing_link.link_status
+        merged_last_checked = existing_link.last_checked
+        merged_http_status_code = existing_link.http_status_code
+        if (new_link.last_checked and
+            (not existing_link.last_checked or new_link.last_checked > existing_link.last_checked)):
+            merged_link_status = new_link.link_status
+            merged_last_checked = new_link.last_checked
+            merged_http_status_code = new_link.http_status_code
+
+        # Create merged link with all fields
         merged_link = Link(
             name=merged_name,
             url=existing_link.url,  # Keep existing URL format
             favorite=merged_favorite,
             date_added=merged_date_added,
-            last_opened=merged_last_opened
+            last_opened=merged_last_opened,
+            open_count=merged_open_count,
+            archived=merged_archived,
+            # Usage tracking
+            first_opened=merged_first_opened,
+            favorite_toggle_count=merged_toggle_count,
+            last_modified=merged_last_modified,
+            time_to_first_open=merged_time_to_first_open,
+            opens_last_30_days=merged_opens_30_days,
+            # Categorization
+            tags=merged_tags,
+            category=merged_category,
+            # domain will be auto-extracted
+            # Metadata
+            notes=merged_notes,
+            source=merged_source,
+            # Link health
+            link_status=merged_link_status,
+            last_checked=merged_last_checked,
+            http_status_code=merged_http_status_code
         )
-        
+
         return merged_link 

@@ -3,10 +3,12 @@ from tkinter import messagebox
 from typing import List, Optional, Tuple
 from collections import deque
 import threading
+from datetime import datetime
 from models.link import Link
 from models.profile import Profile
 from services.profile_service import ProfileService
 from services.import_export_service import ImportExportService
+from services.analytics_service import AnalyticsService
 from ui.components.link_list_view import LinkListView
 from ui.components.search_bar import SearchBar
 from ui.components.profile_selector import ProfileSelector
@@ -172,7 +174,7 @@ class ProfileController:
         self._root.bind("o", self._on_vim_key("o", lambda: self._execute_with_multiplier(self._open_random)))
         self._root.bind("O", self._on_vim_key("O", lambda: self._execute_with_multiplier(self._open_random_favorite)))
         self._root.bind("u", self._on_vim_key("u", lambda: self._execute_with_multiplier(self._open_random_unread)))
-        self._root.bind("d", self._on_vim_key("d", self._on_delete_key_pressed))
+        self._root.bind("d", self._on_vim_key("d", self._delete_selected))
         self._root.bind("e", self._on_vim_key("e", self._edit_link))
         self._root.bind("a", self._on_vim_key("a", self._add_links))
         self._root.bind("n", self._on_vim_key("n", self._add_links))
@@ -313,15 +315,25 @@ class ProfileController:
         if indices:
             self._profile_service.open_links(indices)
     
+    def _delete_selected(self) -> None:
+        """Delete currently selected links (wrapper for vim key binding)."""
+        indices = self._get_selected_indices()
+        if indices:
+            self._on_delete_key_pressed(indices)
+
     def _on_delete_key_pressed(self, indices: List[int]) -> None:
         """Handle delete key press and save to undo stack."""
         if not indices:
             return
 
-        if len(indices) > 1:
-            if not messagebox.askyesno("Confirm Deletion",
-                                     f"Are you sure you want to delete {len(indices)} selected link(s)?"):
-                return
+        # Always show confirmation dialog
+        if len(indices) == 1:
+            confirmation_message = "Are you sure you want to delete this link?"
+        else:
+            confirmation_message = f"Are you sure you want to delete {len(indices)} selected link(s)?"
+
+        if not messagebox.askyesno("Confirm Deletion", confirmation_message):
+            return
 
         # Get the visual position of the first selected item before deletion
         visual_positions = self._link_list_view.get_visual_positions_of_selected()
@@ -451,7 +463,7 @@ class ProfileController:
                 return
 
             # First, add all links immediately with URL as name (in a batch)
-            new_links = [Link(url, url) for url in urls]  # Temporary: name = url
+            new_links = [Link(url, url, source="manual") for url in urls]  # Temporary: name = url
             self._profile_service.add_links_batch(new_links)
 
             # Then, asynchronously fetch and update titles for those that need it
@@ -494,6 +506,7 @@ class ProfileController:
             if index < len(all_links):
                 link = all_links[index]
                 link.name = new_title
+                link.last_modified = datetime.now().isoformat()
                 batch_updates.append((index, link))
 
         # Apply all updates in a single batch (one save, one UI refresh)
@@ -745,7 +758,21 @@ class ProfileController:
         all_profiles = self._profile_service.get_all_profiles()
 
         if current_profile:
-            dialog = AnalyticsDialog(self._root, current_profile, all_profiles)
+            # Create analytics service
+            analytics_service = AnalyticsService(self._profile_service)
+
+            # Import browser service for opening links from analytics dialog
+            from services.browser_service import BrowserService
+            browser_service = BrowserService()
+
+            dialog = AnalyticsDialog(
+                self._root,
+                current_profile,
+                all_profiles,
+                analytics_service,
+                browser_service,
+                self._profile_service
+            )
             dialog.show()
 
     def _show_help(self) -> None:

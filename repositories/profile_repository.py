@@ -146,14 +146,41 @@ class JsonProfileRepository(ProfileRepository):
                     self._profiles.append(profile)
                 except (ValueError, KeyError) as e:
                     print(f"Warning: Skipping invalid profile: {e}")
-            
+
+            # Migrate existing data to new analytics fields
+            self._migrate_analytics_fields()
+
             # Ensure at least one profile exists and one is default
             self._ensure_valid_profiles()
         
         except (json.JSONDecodeError, IOError) as e:
             print(f"Error loading profiles: {e}")
             self._create_default_profile()
-    
+
+    def _migrate_analytics_fields(self) -> None:
+        """Migrate existing links to include new analytics fields with defaults."""
+        needs_save = False
+
+        for profile in self._profiles:
+            for link in profile.all_links:
+                # Auto-populate domain if missing or empty
+                if not link.domain or link.domain == "":
+                    try:
+                        link._domain = link._extract_domain(link.url)
+                        needs_save = True
+                    except Exception:
+                        pass
+
+                # Set source to "legacy" for existing links without a source
+                if link.source is None:
+                    link._source = "legacy"
+                    needs_save = True
+
+        # Save migrated data if any changes were made
+        if needs_save:
+            self._persist_profiles()
+            print("Migrated analytics fields for existing links")
+
     def _migrate_from_legacy_links(self) -> None:
         """Migrate from legacy links.json to profiles system."""
         if os.path.exists(self._legacy_links_path):

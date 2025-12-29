@@ -6,7 +6,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import List, Optional, Callable
 from models.link import Link
-from utils.date_formatter import format_datetime
+from utils.date_formatter import DateFormatter
 
 
 class ArchivedLinksDialog:
@@ -109,8 +109,8 @@ class ArchivedLinksDialog:
     def _populate_tree(self) -> None:
         """Populate the tree with archived links."""
         for link in self._archived_links:
-            date_added = format_datetime(link.date_added)
-            last_opened = format_datetime(link.last_opened) if link.last_opened else "Never"
+            date_added = DateFormatter.format_datetime(link.date_added)
+            last_opened = DateFormatter.format_datetime(link.last_opened) if link.last_opened else "Never"
 
             self._tree.insert("", tk.END, values=(
                 link.name,

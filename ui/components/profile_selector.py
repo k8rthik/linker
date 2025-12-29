@@ -15,6 +15,7 @@ class ProfileSelector:
         # Callbacks
         self._on_profile_changed: Optional[Callable[[str], None]] = None
         self._on_manage_profiles: Optional[Callable[[], None]] = None
+        self._on_analytics: Optional[Callable[[], None]] = None
         
         self._create_components()
     
@@ -48,7 +49,15 @@ class ProfileSelector:
             text="Manage Profiles",
             command=self._on_manage_clicked
         )
-        self._manage_button.pack(side=tk.LEFT)
+        self._manage_button.pack(side=tk.LEFT, padx=(0, 5))
+
+        # Analytics button
+        self._analytics_button = ttk.Button(
+            self._frame,
+            text="Analytics",
+            command=self._on_analytics_clicked
+        )
+        self._analytics_button.pack(side=tk.LEFT)
     
     def pack(self, **kwargs) -> None:
         """Pack the main frame."""
@@ -106,14 +115,23 @@ class ProfileSelector:
         """Handle manage profiles button click."""
         if self._on_manage_profiles:
             self._on_manage_profiles()
-    
+
+    def _on_analytics_clicked(self) -> None:
+        """Handle analytics button click."""
+        if self._on_analytics:
+            self._on_analytics()
+
     def set_profile_changed_callback(self, callback: Callable[[str], None]) -> None:
         """Set callback for profile selection changes."""
         self._on_profile_changed = callback
-    
+
     def set_manage_profiles_callback(self, callback: Callable[[], None]) -> None:
         """Set callback for manage profiles button."""
         self._on_manage_profiles = callback
+
+    def set_analytics_callback(self, callback: Callable[[], None]) -> None:
+        """Set callback for analytics button."""
+        self._on_analytics = callback
     
     def refresh_current_profile_info(self) -> None:
         """Refresh the info display for the current profile."""
