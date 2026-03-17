@@ -1,8 +1,117 @@
-from typing import List, Optional, Callable
+from typing import List, Optional, Callable, Dict, Set
 from models.profile import Profile
 from models.link import Link
 from repositories.profile_repository import ProfileRepository
 from .browser_service import BrowserService
+
+
+class SearchIndex:
+    """Fast search index for link collections using inverted indices."""
+
+    def __init__(self):
+        self._text_index: Dict[str, Set[int]] = {}  # word -> set of link indices
+        self._tag_index: Dict[str, Set[int]] = {}  # tag -> set of link indices
+        self._domain_index: Dict[str, Set[int]] = {}  # domain -> set of link indices
+        self._indexed_links: List[Link] = []
+
+    def rebuild(self, links: List[Link]) -> None:
+        """Rebuild all indices from scratch. O(n * m) where m is avg words per link."""
+        self._text_index.clear()
+        self._tag_index.clear()
+        self._domain_index.clear()
+        self._indexed_links = links
+
+        for idx, link in enumerate(links):
+            # Index text content (name + URL)
+            text_content = f"{link.name} {link.url}".lower()
+            words = self._tokenize(text_content)
+            for word in words:
+                if word not in self._text_index:
+                    self._text_index[word] = set()
+                self._text_index[word].add(idx)
+
+            # Index tags
+            for tag in link.tags:
+                tag_lower = tag.lower()
+                if tag_lower not in self._tag_index:
+                    self._tag_index[tag_lower] = set()
+                self._tag_index[tag_lower].add(idx)
+
+            # Index domain
+            if link.domain:
+                domain_lower = link.domain.lower()
+                if domain_lower not in self._domain_index:
+                    self._domain_index[domain_lower] = set()
+                self._domain_index[domain_lower].add(idx)
+
+    def search(self, query: str, tag_filter: Optional[str] = None,
+               domain_filter: Optional[str] = None) -> List[int]:
+        """
+        Search using indices. Returns list of matching link indices.
+        O(k * log n) where k is number of query terms.
+        """
+        if not query and not tag_filter and not domain_filter:
+            return list(range(len(self._indexed_links)))
+
+        result_indices: Optional[Set[int]] = None
+
+        # Text search
+        if query:
+            query_lower = query.lower()
+            words = self._tokenize(query_lower)
+
+            # For each word, get matching indices and intersect
+            for word in words:
+                word_matches = set()
+                # Find all index keys that contain this word (substring match)
+                for indexed_word, indices in self._text_index.items():
+                    if word in indexed_word:
+                        word_matches.update(indices)
+
+                if result_indices is None:
+                    result_indices = word_matches
+                else:
+                    result_indices = result_indices.intersection(word_matches)
+
+                # Early exit if no matches
+                if not result_indices:
+                    return []
+
+        # Tag filter
+        if tag_filter:
+            tag_lower = tag_filter.lower()
+            tag_matches = self._tag_index.get(tag_lower, set())
+            if result_indices is None:
+                result_indices = tag_matches
+            else:
+                result_indices = result_indices.intersection(tag_matches)
+
+        # Domain filter
+        if domain_filter:
+            domain_lower = domain_filter.lower()
+            domain_matches = self._domain_index.get(domain_lower, set())
+            if result_indices is None:
+                result_indices = domain_matches
+            else:
+                result_indices = result_indices.intersection(domain_matches)
+
+        return sorted(list(result_indices or set()))
+
+    def get_all_tags(self) -> List[str]:
+        """Get all unique tags from the index."""
+        return sorted(self._tag_index.keys())
+
+    def get_all_domains(self) -> List[str]:
+        """Get all unique domains from the index."""
+        return sorted(self._domain_index.keys())
+
+    @staticmethod
+    def _tokenize(text: str) -> List[str]:
+        """Tokenize text into searchable words."""
+        # Split on common delimiters and filter empty strings
+        import re
+        words = re.split(r'[\s/\-_.:?&=]+', text)
+        return [w for w in words if w and len(w) > 1]  # Ignore single-char tokens
 
 
 class ProfileService:
@@ -13,9 +122,11 @@ class ProfileService:
         self._browser_service = browser_service
         self._current_profile: Optional[Profile] = None
         self._observers: List[Callable[[], None]] = []
-        
+        self._search_index = SearchIndex()
+
         # Load current profile
         self._load_current_profile()
+        self._rebuild_search_index()
     
     def get_all_profiles(self) -> List[Profile]:
         """Get all available profiles."""
@@ -211,20 +322,22 @@ class ProfileService:
         self._save_current_profile()
         self._notify_observers()
     
-    def search_links(self, query: str) -> List[Link]:
-        """Search links in the current profile."""
-        if not self._current_profile or not query:
+    def search_links(self, query: str, tag_filter: Optional[str] = None,
+                     domain_filter: Optional[str] = None) -> List[Link]:
+        """Search links using the fast search index."""
+        if not self._current_profile:
+            return []
+
+        # If no filters, return all links
+        if not query and not tag_filter and not domain_filter:
             return self.get_links()
-        
-        query_lower = query.lower()
-        filtered_links = []
-        
-        for link in self._current_profile.links:
-            if (query_lower in link.name.lower() or 
-                query_lower in link.url.lower()):
-                filtered_links.append(link)
-        
-        return filtered_links
+
+        # Use search index for fast O(log n) search
+        matching_indices = self._search_index.search(query, tag_filter, domain_filter)
+
+        # Convert indices to links
+        links = self._current_profile.links
+        return [links[idx] for idx in matching_indices if idx < len(links)]
     
     def sort_links(self, links: List[Link], column: str, reverse: bool = False) -> List[Link]:
         """Sort links by specified column."""
@@ -276,7 +389,10 @@ class ProfileService:
             self._observers.remove(callback)
     
     def _notify_observers(self) -> None:
-        """Notify all observers of changes."""
+        """Notify all observers of changes and rebuild search index."""
+        # Rebuild search index before notifying observers (so UI gets fresh index)
+        self._rebuild_search_index()
+
         for callback in self._observers:
             try:
                 callback()
@@ -294,3 +410,46 @@ class ProfileService:
         """Save the current profile to repository."""
         if self._current_profile:
             self._profile_repository.update(self._current_profile)
+
+    def _rebuild_search_index(self) -> None:
+        """Rebuild the search index with current profile's links."""
+        if self._current_profile:
+            self._search_index.rebuild(self._current_profile.links)
+
+    def get_all_tags(self) -> List[str]:
+        """Get all unique tags from current profile."""
+        return self._search_index.get_all_tags()
+
+    def get_all_domains(self) -> List[str]:
+        """Get all unique domains from current profile."""
+        return self._search_index.get_all_domains()
+
+    def add_tags_to_links(self, indices: List[int], tags: List[str]) -> bool:
+        """Add tags to multiple links."""
+        if not self._current_profile or not indices or not tags:
+            return False
+
+        links = self._current_profile.links
+        for index in indices:
+            if 0 <= index < len(links):
+                for tag in tags:
+                    links[index].add_tag(tag)
+
+        self._save_current_profile()
+        self._notify_observers()
+        return True
+
+    def remove_tags_from_links(self, indices: List[int], tags: List[str]) -> bool:
+        """Remove tags from multiple links."""
+        if not self._current_profile or not indices or not tags:
+            return False
+
+        links = self._current_profile.links
+        for index in indices:
+            if 0 <= index < len(links):
+                for tag in tags:
+                    links[index].remove_tag(tag)
+
+        self._save_current_profile()
+        self._notify_observers()
+        return True

@@ -4,8 +4,9 @@ Service for analytics calculations and insights.
 
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Any, Optional
-from collections import defaultdict
+from collections import defaultdict, Counter
 import requests
+import json
 
 from models.link import Link
 from models.profile import Profile
@@ -448,6 +449,431 @@ class AnalyticsService:
     def get_unchecked_links(self, profile: Profile) -> List[Link]:
         """Get all unchecked links in a profile."""
         return [link for link in profile.links if link.link_status == "unknown"]
+
+    # ===== TIME-BASED PATTERNS =====
+
+    def get_hourly_distribution(self, profile: Profile) -> Dict[int, int]:
+        """
+        Get distribution of link opens by hour of day (0-23).
+
+        Args:
+            profile: The profile to analyze
+
+        Returns:
+            Dictionary mapping hour (0-23) to open count
+        """
+        hourly_counts = defaultdict(int)
+
+        for link in profile.links:
+            if link.last_opened:
+                try:
+                    dt = datetime.fromisoformat(link.last_opened)
+                    hourly_counts[dt.hour] += 1
+                except (ValueError, AttributeError):
+                    pass
+
+        # Fill in missing hours with 0
+        return {hour: hourly_counts.get(hour, 0) for hour in range(24)}
+
+    def get_day_of_week_distribution(self, profile: Profile) -> Dict[str, int]:
+        """
+        Get distribution of link opens by day of week.
+
+        Args:
+            profile: The profile to analyze
+
+        Returns:
+            Dictionary mapping day name to open count
+        """
+        day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        day_counts = defaultdict(int)
+
+        for link in profile.links:
+            if link.last_opened:
+                try:
+                    dt = datetime.fromisoformat(link.last_opened)
+                    day_name = day_names[dt.weekday()]
+                    day_counts[day_name] += 1
+                except (ValueError, AttributeError):
+                    pass
+
+        # Return in order Mon-Sun with 0 for missing days
+        return {day: day_counts.get(day, 0) for day in day_names}
+
+    def get_peak_usage_time(self, profile: Profile) -> Tuple[str, int]:
+        """
+        Get the peak usage hour and count.
+
+        Args:
+            profile: The profile to analyze
+
+        Returns:
+            Tuple of (time_description, count)
+        """
+        hourly = self.get_hourly_distribution(profile)
+        if not hourly or all(count == 0 for count in hourly.values()):
+            return ("No data", 0)
+
+        peak_hour = max(hourly.items(), key=lambda x: x[1])
+
+        # Convert to 12-hour format with period description
+        hour = peak_hour[0]
+        if hour == 0:
+            time_str = "12 AM - 1 AM"
+        elif hour < 12:
+            time_str = f"{hour} AM - {hour + 1} AM"
+        elif hour == 12:
+            time_str = "12 PM - 1 PM"
+        else:
+            time_str = f"{hour - 12} PM - {hour - 11} PM"
+
+        return (time_str, peak_hour[1])
+
+    def get_usage_streaks(self, profile: Profile) -> Dict[str, Any]:
+        """
+        Calculate usage streaks (consecutive days with activity).
+
+        Args:
+            profile: The profile to analyze
+
+        Returns:
+            Dictionary with current streak, longest streak, and streak data
+        """
+        # Get all unique dates with activity
+        active_dates = set()
+        for link in profile.links:
+            if link.last_opened:
+                try:
+                    dt = datetime.fromisoformat(link.last_opened)
+                    active_dates.add(dt.date())
+                except (ValueError, AttributeError):
+                    pass
+
+        if not active_dates:
+            return {
+                "current_streak": 0,
+                "longest_streak": 0,
+                "total_active_days": 0
+            }
+
+        sorted_dates = sorted(active_dates)
+
+        # Calculate current streak
+        current_streak = 0
+        today = datetime.now().date()
+        check_date = today
+        while check_date in active_dates:
+            current_streak += 1
+            check_date -= timedelta(days=1)
+
+        # Calculate longest streak
+        longest_streak = 1
+        current_run = 1
+
+        for i in range(1, len(sorted_dates)):
+            if (sorted_dates[i] - sorted_dates[i-1]).days == 1:
+                current_run += 1
+                longest_streak = max(longest_streak, current_run)
+            else:
+                current_run = 1
+
+        return {
+            "current_streak": current_streak,
+            "longest_streak": longest_streak,
+            "total_active_days": len(active_dates)
+        }
+
+    # ===== ENGAGEMENT & QUALITY METRICS =====
+
+    def calculate_engagement_score(self, link: Link) -> float:
+        """
+        Calculate an engagement score for a link (0-100).
+
+        Factors:
+        - Open count (40% weight)
+        - Recency of last open (30% weight)
+        - Time to first open (15% weight)
+        - Favorite status (15% weight)
+
+        Args:
+            link: The link to score
+
+        Returns:
+            Engagement score between 0 and 100
+        """
+        score = 0.0
+
+        # Open count score (40 points max)
+        # Diminishing returns: 1-5 opens = high value, then plateaus
+        open_score = min(link.open_count * 5, 40)
+        score += open_score
+
+        # Recency score (30 points max)
+        if link.last_opened:
+            try:
+                last_opened_dt = datetime.fromisoformat(link.last_opened)
+                days_since = (datetime.now() - last_opened_dt).days
+
+                if days_since <= 7:
+                    recency_score = 30
+                elif days_since <= 30:
+                    recency_score = 20
+                elif days_since <= 90:
+                    recency_score = 10
+                else:
+                    recency_score = 5
+
+                score += recency_score
+            except (ValueError, AttributeError):
+                pass
+
+        # Time to first open score (15 points max)
+        # Faster opens = higher engagement
+        if link.time_to_first_open is not None:
+            days_to_open = link.time_to_first_open / 86400  # Convert seconds to days
+
+            if days_to_open <= 1:
+                score += 15
+            elif days_to_open <= 7:
+                score += 10
+            elif days_to_open <= 30:
+                score += 5
+
+        # Favorite status (15 points)
+        if link.favorite:
+            score += 15
+
+        return min(score, 100)
+
+    def get_engagement_tiers(self, profile: Profile) -> Dict[str, List[Link]]:
+        """
+        Categorize links into engagement tiers.
+
+        Args:
+            profile: The profile to analyze
+
+        Returns:
+            Dictionary mapping tier name to list of links
+        """
+        tiers = {
+            "High Engagement (75+)": [],
+            "Medium Engagement (50-74)": [],
+            "Low Engagement (25-49)": [],
+            "Very Low Engagement (0-24)": []
+        }
+
+        for link in profile.links:
+            score = self.calculate_engagement_score(link)
+
+            if score >= 75:
+                tiers["High Engagement (75+)"].append(link)
+            elif score >= 50:
+                tiers["Medium Engagement (50-74)"].append(link)
+            elif score >= 25:
+                tiers["Low Engagement (25-49)"].append(link)
+            else:
+                tiers["Very Low Engagement (0-24)"].append(link)
+
+        return tiers
+
+    def get_link_quality_score(self, link: Link) -> float:
+        """
+        Calculate a quality score for a link (0-100).
+
+        Factors:
+        - Has been opened (25 points)
+        - Has category/tags (25 points)
+        - Has notes (15 points)
+        - Health status (20 points)
+        - Favorite status (15 points)
+
+        Args:
+            link: The link to score
+
+        Returns:
+            Quality score between 0 and 100
+        """
+        score = 0.0
+
+        # Has been opened
+        if not link.is_unread():
+            score += 25
+
+        # Has categorization
+        if link.category or link.tags:
+            score += 25
+
+        # Has notes
+        if link.notes and link.notes.strip():
+            score += 15
+
+        # Health status
+        if link.link_status == "active":
+            score += 20
+        elif link.link_status in ["redirect", "unknown"]:
+            score += 10
+
+        # Favorite status
+        if link.favorite:
+            score += 15
+
+        return score
+
+    def get_profile_health_score(self, profile: Profile) -> Dict[str, Any]:
+        """
+        Calculate overall profile health score.
+
+        Args:
+            profile: The profile to analyze
+
+        Returns:
+            Dictionary with health metrics
+        """
+        links = profile.links
+        if not links:
+            return {
+                "overall_score": 0,
+                "total_links": 0,
+                "quality_breakdown": {}
+            }
+
+        quality_scores = [self.get_link_quality_score(link) for link in links]
+        avg_quality = sum(quality_scores) / len(quality_scores)
+
+        # Count links by quality tier
+        excellent = sum(1 for s in quality_scores if s >= 80)
+        good = sum(1 for s in quality_scores if 60 <= s < 80)
+        fair = sum(1 for s in quality_scores if 40 <= s < 60)
+        poor = sum(1 for s in quality_scores if s < 40)
+
+        return {
+            "overall_score": avg_quality,
+            "total_links": len(links),
+            "quality_breakdown": {
+                "Excellent (80+)": excellent,
+                "Good (60-79)": good,
+                "Fair (40-59)": fair,
+                "Poor (<40)": poor
+            }
+        }
+
+    # ===== COMPARATIVE ANALYTICS =====
+
+    def compare_profiles(self, profiles: List[Profile]) -> List[Dict[str, Any]]:
+        """
+        Compare metrics across all profiles.
+
+        Args:
+            profiles: List of profiles to compare
+
+        Returns:
+            List of profile comparison data
+        """
+        comparisons = []
+
+        for profile in profiles:
+            stats = self.get_profile_stats(profile)
+            health = self.get_profile_health_score(profile)
+            streaks = self.get_usage_streaks(profile)
+
+            comparisons.append({
+                "name": profile.name,
+                "total_links": stats["total_links"],
+                "favorites": stats["favorites"],
+                "total_opens": stats["total_opens"],
+                "avg_opens": stats["avg_opens"],
+                "quality_score": health["overall_score"],
+                "current_streak": streaks["current_streak"],
+                "active_days": streaks["total_active_days"]
+            })
+
+        return sorted(comparisons, key=lambda x: x["total_opens"], reverse=True)
+
+    def get_productivity_insights(self, profile: Profile) -> List[str]:
+        """
+        Generate actionable productivity insights.
+
+        Args:
+            profile: The profile to analyze
+
+        Returns:
+            List of insight strings
+        """
+        insights = []
+
+        stats = self.get_profile_stats(profile)
+        streaks = self.get_usage_streaks(profile)
+        peak_time, peak_count = self.get_peak_usage_time(profile)
+
+        # Unread links insight
+        if stats["unread"] > 10:
+            insights.append(f"📚 You have {stats['unread']} unread links. Consider reviewing old links.")
+
+        # Streak insight
+        if streaks["current_streak"] >= 7:
+            insights.append(f"🔥 Amazing! You're on a {streaks['current_streak']}-day streak!")
+        elif streaks["current_streak"] == 0 and streaks["longest_streak"] > 0:
+            insights.append(f"💡 Your streak ended. Your record was {streaks['longest_streak']} days!")
+
+        # Favorites insight
+        if stats["favorites"] < stats["total_links"] * 0.1:
+            insights.append("⭐ Try marking your best links as favorites for quick access.")
+
+        # Peak time insight
+        if peak_count > 0:
+            insights.append(f"⏰ You're most active during {peak_time}.")
+
+        # Engagement insight
+        tiers = self.get_engagement_tiers(profile)
+        low_engagement = len(tiers["Very Low Engagement (0-24)"])
+        if low_engagement > 5:
+            insights.append(f"📉 {low_engagement} links have very low engagement. Consider archiving unused links.")
+
+        # Health insight
+        broken = len(self.get_broken_links(profile))
+        if broken > 0:
+            insights.append(f"⚠️ {broken} links are broken. Run a health check to identify them.")
+
+        if not insights:
+            insights.append("✅ Your link library is in great shape!")
+
+        return insights
+
+    # ===== EXPORT CAPABILITIES =====
+
+    def export_analytics_report(self, profile: Profile, profiles: List[Profile]) -> str:
+        """
+        Export comprehensive analytics as JSON string.
+
+        Args:
+            profile: Current profile
+            profiles: All profiles
+
+        Returns:
+            JSON string with full analytics report
+        """
+        report = {
+            "generated_at": datetime.now().isoformat(),
+            "profile_name": profile.name,
+            "profile_stats": self.get_profile_stats(profile),
+            "all_profiles_stats": self.get_all_profiles_stats(profiles),
+            "usage_trends": self.get_usage_trends(profile, days=30),
+            "hourly_distribution": self.get_hourly_distribution(profile),
+            "day_distribution": self.get_day_of_week_distribution(profile),
+            "usage_streaks": self.get_usage_streaks(profile),
+            "health_score": self.get_profile_health_score(profile),
+            "most_opened": [
+                {"name": link.name, "url": link.url, "opens": link.open_count}
+                for link in self.get_most_opened_links(profile, limit=10)
+            ],
+            "recommendations": [
+                {"name": link.name, "url": link.url, "reason": reason}
+                for link, reason in self.get_recommended_links(profile, count=5)
+            ],
+            "insights": self.get_productivity_insights(profile)
+        }
+
+        return json.dumps(report, indent=2)
 
     # ===== HELPER METHODS =====
 

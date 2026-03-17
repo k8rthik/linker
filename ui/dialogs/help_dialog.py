@@ -182,6 +182,7 @@ class HelpDialog:
             "• Automatic page title fetching\n"
             "• Background web scraping (fyptt.to) with pause/resume\n"
             "• Link analytics and statistics\n"
+            "• Duplicate detection and intelligent merging\n"
             "• Import/export functionality\n"
             "• Soft delete with archive (view & restore deleted links)\n"
             "• Undo delete (last 20 operations)\n"

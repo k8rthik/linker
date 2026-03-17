@@ -63,9 +63,14 @@ class Profile:
         return False
     
     def update_link(self, index: int, link: Link) -> bool:
-        """Update a link by index. Returns True if successful."""
-        if 0 <= index < len(self._links):
-            self._links[index] = link
+        """Update a link by index (using non-archived list index). Returns True if successful."""
+        # Get only non-archived links to find the correct link
+        non_archived = [link for link in self._links if not link.is_archived()]
+        if 0 <= index < len(non_archived):
+            # Find the actual index in self._links
+            target_link = non_archived[index]
+            actual_index = self._links.index(target_link)
+            self._links[actual_index] = link
             return True
         return False
     

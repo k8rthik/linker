@@ -8,20 +8,21 @@ from utils.date_formatter import DateFormatter
 
 class LinkListView:
     """Component for displaying and managing the link list."""
-    
+
     def __init__(self, parent: tk.Widget):
         self._parent = parent
         self._links: List[Link] = []
         self._filtered_links: List[Link] = []
+        self._link_to_index: dict = {}  # Maps link objects to their indices
         self._sort_column: Optional[str] = None
         self._sort_reverse: bool = False
-        
+
         # Callbacks
         self._on_double_click: Optional[Callable[[List[int]], None]] = None
         self._on_delete_key: Optional[Callable[[List[int]], None]] = None
         self._on_space_key: Optional[Callable[[], None]] = None
         self._on_sort: Optional[Callable[[str, bool], None]] = None
-        
+
         self._create_components()
     
     def _create_components(self) -> None:
@@ -94,6 +95,11 @@ class LinkListView:
         """Set the links to display."""
         self._links = links
         self._filtered_links = filtered_links
+
+        # Build mapping from link objects to their indices in the main list
+        # Use id() for mapping since Link doesn't override __hash__ or __eq__
+        self._link_to_index = {id(link): i for i, link in enumerate(links)}
+
         self._refresh_display()
     
     def _refresh_display(self) -> None:
@@ -101,7 +107,7 @@ class LinkListView:
         # Clear existing items
         for item in self._tree.get_children():
             self._tree.delete(item)
-        
+
         # Add filtered links
         for link in self._filtered_links:
             favorite_icon = "★" if link.favorite else ""
@@ -109,11 +115,11 @@ class LinkListView:
             url = link.url
             date_added = DateFormatter.format_datetime(link.date_added)
             last_opened = DateFormatter.format_datetime(link.last_opened)
-            
-            # Use the original index from self._links for proper mapping
-            original_index = self._links.index(link) if link in self._links else -1
+
+            # Use the mapping to find the original index
+            original_index = self._link_to_index.get(id(link), -1)
             if original_index >= 0:
-                self._tree.insert("", "end", iid=str(original_index), text=favorite_icon, 
+                self._tree.insert("", "end", iid=str(original_index), text=favorite_icon,
                                values=(name, url, date_added, last_opened))
     
     def get_selected_indices(self) -> List[int]:
@@ -172,26 +178,26 @@ class LinkListView:
     
     def _update_column_headers(self) -> None:
         """Update column headers to show sort direction."""
-        # Reset all headers
-        self._tree.heading("#0", text="Fav")
-        self._tree.heading("name", text="Name")
-        self._tree.heading("url", text="URL")
-        self._tree.heading("date_added", text="Date Added")
-        self._tree.heading("last_opened", text="Last Opened")
-        
+        # Reset all headers (preserve command callbacks)
+        self._tree.heading("#0", text="Fav", command=lambda: self._on_column_clicked("favorite"))
+        self._tree.heading("name", text="Name", command=lambda: self._on_column_clicked("name"))
+        self._tree.heading("url", text="URL", command=lambda: self._on_column_clicked("url"))
+        self._tree.heading("date_added", text="Date Added", command=lambda: self._on_column_clicked("date_added"))
+        self._tree.heading("last_opened", text="Last Opened", command=lambda: self._on_column_clicked("last_opened"))
+
         # Add sort indicator to current sort column
         if self._sort_column:
             indicator = " ↓" if self._sort_reverse else " ↑"
             if self._sort_column == "favorite":
-                self._tree.heading("#0", text="Fav" + indicator)
+                self._tree.heading("#0", text="Fav" + indicator, command=lambda: self._on_column_clicked("favorite"))
             elif self._sort_column == "name":
-                self._tree.heading("name", text="Name" + indicator)
+                self._tree.heading("name", text="Name" + indicator, command=lambda: self._on_column_clicked("name"))
             elif self._sort_column == "url":
-                self._tree.heading("url", text="URL" + indicator)
+                self._tree.heading("url", text="URL" + indicator, command=lambda: self._on_column_clicked("url"))
             elif self._sort_column == "date_added":
-                self._tree.heading("date_added", text="Date Added" + indicator)
+                self._tree.heading("date_added", text="Date Added" + indicator, command=lambda: self._on_column_clicked("date_added"))
             elif self._sort_column == "last_opened":
-                self._tree.heading("last_opened", text="Last Opened" + indicator)
+                self._tree.heading("last_opened", text="Last Opened" + indicator, command=lambda: self._on_column_clicked("last_opened"))
     
     def has_focus(self) -> bool:
         """Check if the tree view has focus."""

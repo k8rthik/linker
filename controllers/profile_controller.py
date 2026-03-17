@@ -9,6 +9,7 @@ from models.profile import Profile
 from services.profile_service import ProfileService
 from services.import_export_service import ImportExportService
 from services.analytics_service import AnalyticsService
+from services.deduplication_service import DeduplicationService
 from ui.components.link_list_view import LinkListView
 from ui.components.search_bar import SearchBar
 from ui.components.profile_selector import ProfileSelector
@@ -19,6 +20,13 @@ from ui.dialogs.analytics_dialog import AnalyticsDialog
 from ui.dialogs.help_dialog import HelpDialog
 from ui.dialogs.scraper_status_dialog import ScraperStatusDialog
 from ui.dialogs.archived_links_dialog import ArchivedLinksDialog
+from ui.dialogs.deduplication_dialog import (
+    DeduplicationPreviewDialog,
+    DeduplicationProgressDialog,
+    DeduplicationResultsDialog
+)
+from ui.dialogs.merge_conflict_dialog import MergeConflictDialog
+from ui.dialogs.tag_manager_dialog import TagManagerDialog
 from utils.title_fetcher import TitleFetcher
 
 
@@ -31,6 +39,7 @@ class ProfileController:
         self._profile_service = profile_service
         self._scraper_service = scraper_service
         self._import_export_service = ImportExportService(profile_service)
+        self._deduplication_service = DeduplicationService()
         self._current_search_term = ""
         self._current_sort_column: Optional[str] = None
         self._current_sort_reverse = False
@@ -64,9 +73,9 @@ class ProfileController:
         # Background scan for title updates (runs after UI is ready)
         self._root.after(1000, self._scan_and_update_titles)  # Wait 1 second after startup
 
-        # Run scraper if needed (5 seconds after startup, after titles start fetching)
+        # Run scraper on startup (5 seconds after startup, after titles start fetching)
         if self._scraper_service:
-            self._root.after(5000, self._run_scraper_if_needed)
+            self._root.after(5000, self._run_scraper_on_startup)
     
     def _create_ui(self) -> None:
         """Create the user interface."""
@@ -130,13 +139,26 @@ class ProfileController:
         menubar = tk.Menu(self._root)
         self._root.config(menu=menubar)
 
+        # Tags menu
+        tags_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Tags", menu=tags_menu)
+        tags_menu.add_command(label="Add Tags to Selected", command=self._bulk_add_tags)
+        tags_menu.add_command(label="Remove Tags from Selected", command=self._bulk_remove_tags)
+        tags_menu.add_separator()
+        tags_menu.add_command(label="Manage Tags...", command=self._manage_tags)
+
+        # Tools menu
+        tools_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Tools", menu=tools_menu)
+        tools_menu.add_command(label="Find & Merge Duplicates", command=self._deduplicate_links)
+        tools_menu.add_separator()
+        tools_menu.add_command(label="Scraper Status", command=self._show_scraper_status)
+        tools_menu.add_command(label="View Archived Links", command=self._show_archived_links)
+
         # Help menu
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Help", menu=help_menu)
         help_menu.add_command(label="Keyboard Shortcuts", command=self._show_help)
-        help_menu.add_separator()
-        help_menu.add_command(label="Scraper Status", command=self._show_scraper_status)
-        help_menu.add_command(label="View Archived Links", command=self._show_archived_links)
 
     def _setup_callbacks(self) -> None:
         """Setup callbacks for UI components."""
@@ -149,6 +171,7 @@ class ProfileController:
         self._search_bar.set_search_change_callback(self._on_search_changed)
         self._search_bar.set_clear_callback(self._on_search_cleared)
         self._search_bar.set_open_all_callback(self._on_open_all_clicked)
+        self._search_bar.set_filter_change_callback(self._on_filter_changed)
         
         # Link list view callbacks
         self._link_list_view.set_double_click_callback(self._on_links_double_clicked)
@@ -185,6 +208,7 @@ class ProfileController:
         self._root.bind("/", self._on_vim_key("/", lambda: self._search_bar.focus()))
         self._root.bind("?", self._on_vim_key("?", self._show_help))
         self._root.bind("S", self._on_vim_key("S", self._toggle_scraper_pause))
+        self._root.bind("T", self._on_vim_key("T", self._bulk_add_tags))  # Shift+T for bulk add tags
 
         # Platform-independent shortcuts
         self._root.bind("<Return>", lambda e: self._edit_link())
@@ -215,10 +239,20 @@ class ProfileController:
         
         # Get links from current profile
         all_links = self._profile_service.get_links()
-        
-        # Apply search filter
-        if self._current_search_term:
-            filtered_links = self._profile_service.search_links(self._current_search_term)
+
+        # Apply search filter with tag filters
+        tag_filters = self._search_bar.get_active_tag_filters()
+        if self._current_search_term or tag_filters:
+            # Use first tag filter (or None if no filters)
+            tag_filter = tag_filters[0] if tag_filters else None
+            filtered_links = self._profile_service.search_links(
+                self._current_search_term, tag_filter=tag_filter
+            )
+
+            # Apply additional tag filters if multiple (AND logic)
+            if len(tag_filters) > 1:
+                for tag in tag_filters[1:]:
+                    filtered_links = [link for link in filtered_links if link.has_tag(tag)]
         else:
             filtered_links = all_links
         
@@ -308,6 +342,10 @@ class ProfileController:
     def _on_search_cleared(self) -> None:
         """Handle search being cleared."""
         self._current_search_term = ""
+        self._refresh_view()
+
+    def _on_filter_changed(self) -> None:
+        """Handle tag filter changes."""
         self._refresh_view()
     
     def _on_links_double_clicked(self, indices: List[int]) -> None:
@@ -462,14 +500,56 @@ class ProfileController:
             if not urls:
                 return
 
-            # First, add all links immediately with URL as name (in a batch)
-            new_links = [Link(url, url, source="manual") for url in urls]  # Temporary: name = url
+            # Get all existing links (including archived) for duplicate detection
+            all_links = self._profile_service.get_all_links_including_archived()
+            existing_urls = {self._normalize_url_for_comparison(link.url) for link in all_links}
+
+            # Filter out duplicates
+            new_urls = []
+            duplicate_count = 0
+            for url in urls:
+                normalized = self._normalize_url_for_comparison(url)
+                if normalized not in existing_urls:
+                    new_urls.append(url)
+                    existing_urls.add(normalized)
+                else:
+                    duplicate_count += 1
+
+            # Show message if some were duplicates
+            if duplicate_count > 0:
+                messagebox.showinfo("Duplicate Links",
+                                  f"Skipped {duplicate_count} duplicate link(s).")
+
+            if not new_urls:
+                return
+
+            # Add new links immediately with URL as name (in a batch)
+            new_links = [Link(url, url, source="manual") for url in new_urls]
             self._profile_service.add_links_batch(new_links)
 
             # Then, asynchronously fetch and update titles for those that need it
-            self._background_fetch_titles(urls)
+            self._background_fetch_titles(new_urls)
 
         AddLinksDialog(self._root, add_links_callback)
+
+    def _normalize_url_for_comparison(self, url: str) -> str:
+        """
+        Normalize URL for duplicate detection.
+        Matches the normalization used in ScraperService.
+        """
+        url = url.strip().lower()
+        # Add https:// if no protocol
+        if not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
+        # Normalize protocol to https
+        if url.startswith('http://'):
+            url = 'https://' + url[7:]
+        # Remove trailing slash
+        if url.endswith('/'):
+            url = url[:-1]
+        # Remove www. prefix for comparison
+        url = url.replace('://www.', '://')
+        return url
 
     def _background_fetch_titles(self, urls: List[str]) -> None:
         """Fetch titles in background for URLs that need it."""
@@ -561,6 +641,29 @@ class ProfileController:
             messagebox.showinfo("Scan Titles",
                               f"Fetching titles for {count} link(s) in background...")
 
+    def _run_scraper_on_startup(self) -> None:
+        """Run scraper unconditionally on application startup."""
+        if not self._scraper_service:
+            return
+
+        # Show scraper status if dialog exists
+        if self._scraper_status_dialog and tk.Toplevel.winfo_exists(self._scraper_status_dialog._dialog):
+            domain = self._scraper_service._state.get("target_domain", "fyptt.to")
+            self._scraper_status_dialog.start_scraping(domain)
+
+        def scrape_in_background():
+            result = self._scraper_service.run_scheduled_scrape()
+            # Schedule UI update on main thread
+            if result:
+                self._root.after(0, lambda: self._on_scrape_completed(result))
+
+        # Run in daemon thread (follow pattern from _background_fetch_titles)
+        thread = threading.Thread(target=scrape_in_background, daemon=True)
+        thread.start()
+
+        # Schedule periodic checks starting 1 hour after startup
+        self._root.after(3600000, self._run_scraper_if_needed)
+
     def _run_scraper_if_needed(self) -> None:
         """Check and run scraper if 24 hours elapsed since last run."""
         if not self._scraper_service or not self._scraper_service.should_run_scrape():
@@ -618,8 +721,8 @@ class ProfileController:
         
         def on_save(updated_link: Link) -> None:
             self._profile_service.update_link(link_index, updated_link)
-        
-        EditLinkDialog(self._root, link, on_save)
+
+        EditLinkDialog(self._root, link, on_save, get_all_tags=self._profile_service.get_all_tags)
     
     def _toggle_favorite(self) -> None:
         """Toggle favorite status of selected links."""
@@ -631,7 +734,7 @@ class ProfileController:
         """Toggle read status of selected links."""
         indices = self._get_selected_indices()
         links = self._profile_service.get_links()
-        
+
         for index in indices:
             if index < len(links):
                 link = links[index]
@@ -640,51 +743,144 @@ class ProfileController:
                 else:
                     link.last_opened = None
                 self._profile_service.update_link(index, link)
-    
+
+    def _bulk_add_tags(self) -> None:
+        """Add tags to selected links."""
+        indices = self._get_selected_indices()
+        if not indices:
+            messagebox.showinfo("Info", "No links selected.")
+            return
+
+        # Simple input dialog for tags
+        from tkinter import simpledialog
+        tags_input = simpledialog.askstring(
+            "Add Tags",
+            f"Enter tags to add to {len(indices)} selected link(s)\n(comma-separated):",
+            parent=self._root
+        )
+
+        if tags_input:
+            tags = [tag.strip() for tag in tags_input.split(",") if tag.strip()]
+            if tags:
+                self._profile_service.add_tags_to_links(indices, tags)
+                messagebox.showinfo("Success", f"Added {len(tags)} tag(s) to {len(indices)} link(s).")
+
+    def _bulk_remove_tags(self) -> None:
+        """Remove tags from selected links."""
+        indices = self._get_selected_indices()
+        if not indices:
+            messagebox.showinfo("Info", "No links selected.")
+            return
+
+        # Get all tags from selected links
+        links = self._profile_service.get_links()
+        all_tags = set()
+        for index in indices:
+            if index < len(links):
+                all_tags.update(links[index].tags)
+
+        if not all_tags:
+            messagebox.showinfo("Info", "Selected links have no tags.")
+            return
+
+        # Simple input dialog for tags
+        from tkinter import simpledialog
+        tags_input = simpledialog.askstring(
+            "Remove Tags",
+            f"Enter tags to remove from {len(indices)} selected link(s)\n(comma-separated):\n\nAvailable: {', '.join(sorted(all_tags))}",
+            parent=self._root
+        )
+
+        if tags_input:
+            tags = [tag.strip() for tag in tags_input.split(",") if tag.strip()]
+            if tags:
+                self._profile_service.remove_tags_from_links(indices, tags)
+                messagebox.showinfo("Success", f"Removed {len(tags)} tag(s) from {len(indices)} link(s).")
+
+    def _manage_tags(self) -> None:
+        """Open the tag manager dialog."""
+        TagManagerDialog(
+            self._root,
+            get_all_links=self._profile_service.get_links,
+            update_link=self._profile_service.update_link,
+            on_filter_by_tag=self._search_bar.add_tag_filter
+        )
+
+    def _weighted_random_choice(self, indices: List[int], links: List[Link]) -> int:
+        """
+        Select a random index from the given indices using weighted probability.
+        Links with lower open_count have higher probability of being selected.
+
+        Weight formula: 1 / (open_count + 1)
+        - Never opened (count=0): weight = 1.0
+        - Opened once (count=1): weight = 0.5
+        - Opened twice (count=2): weight = 0.33
+        - And so on...
+
+        Args:
+            indices: List of valid indices to choose from
+            links: The full list of links
+
+        Returns:
+            The selected index
+        """
+        import random
+
+        # Calculate weights for each index
+        weights = []
+        for idx in indices:
+            link = links[idx]
+            # Inverse weight: less opened = higher weight
+            weight = 1.0 / (link.open_count + 1)
+            weights.append(weight)
+
+        # Use random.choices with weights (returns list, so take first element)
+        selected_index = random.choices(indices, weights=weights, k=1)[0]
+        return selected_index
+
     def _open_random(self) -> None:
-        """Open a random link and select it in the UI."""
+        """Open a random link (weighted by open_count) and select it in the UI."""
         links = self._profile_service.get_links()
         if not links:
             messagebox.showinfo("Info", "No links available.")
             return
-        
-        import random
-        index = random.randint(0, len(links) - 1)
-        
+
+        indices = list(range(len(links)))
+        index = self._weighted_random_choice(indices, links)
+
         # Set flag to prevent selection restoration during data change
         self._performing_targeted_selection = True
         self._profile_service.open_links([index])
         self._link_list_view.select_and_scroll_to(index)
-    
+
     def _open_random_unread(self) -> None:
         """Open a random unread link and select it in the UI."""
         links = self._profile_service.get_links()
         unread_indices = [i for i, link in enumerate(links) if link.is_unread()]
-        
+
         if not unread_indices:
             messagebox.showinfo("Info", "No unread links available.")
             return
-        
-        import random
-        index = random.choice(unread_indices)
-        
+
+        # For unread links, all have open_count=0, so weights are equal (true random)
+        index = self._weighted_random_choice(unread_indices, links)
+
         # Set flag to prevent selection restoration during data change
         self._performing_targeted_selection = True
         self._profile_service.open_links([index])
         self._link_list_view.select_and_scroll_to(index)
-    
+
     def _open_random_favorite(self) -> None:
-        """Open a random favorite link and select it in the UI."""
+        """Open a random favorite link (weighted by open_count) and select it in the UI."""
         links = self._profile_service.get_links()
         favorite_indices = [i for i, link in enumerate(links) if link.favorite]
-        
+
         if not favorite_indices:
             messagebox.showinfo("Info", "No favorite links available.")
             return
-        
-        import random
-        index = random.choice(favorite_indices)
-        
+
+        index = self._weighted_random_choice(favorite_indices, links)
+
         # Set flag to prevent selection restoration during data change
         self._performing_targeted_selection = True
         self._profile_service.open_links([index])
@@ -752,18 +948,149 @@ class ProfileController:
         except Exception as e:
             messagebox.showerror("Import Error", f"Failed to import links: {str(e)}")
 
+    def _deduplicate_links(self) -> None:
+        """Find and merge duplicate links in the current profile."""
+        try:
+            current_profile = self._profile_service.get_current_profile()
+            if not current_profile:
+                messagebox.showinfo("No Profile", "No profile is currently loaded.")
+                return
+
+            if len(current_profile.links) == 0:
+                messagebox.showinfo("No Links", "The current profile has no links to deduplicate.")
+                return
+
+            # Find duplicates
+            duplicate_groups = self._deduplication_service.find_duplicates(current_profile)
+
+            if not duplicate_groups:
+                messagebox.showinfo("No Duplicates", "No duplicate links found in the current profile.")
+                return
+
+            # Show preview dialog
+            preview_dialog = DeduplicationPreviewDialog(self._root, duplicate_groups)
+            confirmed = preview_dialog.show()
+
+            if not confirmed:
+                return  # User cancelled
+
+            # Show progress dialog
+            total_groups = len(duplicate_groups)
+            progress_dialog = DeduplicationProgressDialog(self._root, total_groups)
+
+            # Perform automatic deduplication
+            progress_dialog.update(0, "Auto-merging duplicate groups...")
+            self._root.update()
+
+            auto_merged, removed, conflicts = self._deduplication_service.deduplicate_profile(current_profile)
+
+            progress_dialog.update(auto_merged, f"Auto-merged {auto_merged} groups")
+            self._root.update()
+
+            # Handle conflicts that need manual resolution
+            manually_merged = 0
+            skipped = 0
+
+            if conflicts:
+                progress_dialog.close()
+
+            for idx, (link1, link2) in enumerate(conflicts, 1):
+                # Show conflict resolution dialog
+                conflict_dialog = MergeConflictDialog(self._root, link1, link2)
+                result = conflict_dialog.show()
+
+                if not result:
+                    # Dialog was closed without making a choice
+                    skipped += 1
+                    continue
+
+                choice, custom_name = result
+
+                if choice == "cancel":
+                    # User wants to cancel the entire operation
+                    messagebox.showinfo(
+                        "Deduplication Cancelled",
+                        f"Deduplication cancelled. {auto_merged} groups were already merged before cancellation."
+                    )
+                    # Save current state and refresh
+                    self._profile_service._profile_repository.update(current_profile)
+                    self._refresh_view()
+                    return
+
+                elif choice == "skip":
+                    # Keep both links
+                    skipped += 1
+                    continue
+
+                else:
+                    # Merge the links with user's choice
+                    merged_link = self._deduplication_service.merge_links_manual(
+                        link1, link2, choice, custom_name
+                    )
+
+                    # Find and remove both original links by index
+                    non_archived_links = current_profile.links
+                    try:
+                        idx1 = non_archived_links.index(link1)
+                        current_profile.remove_link(idx1)
+                        removed += 1
+                        # Re-get list after removal
+                        non_archived_links = current_profile.links
+                    except ValueError:
+                        pass
+
+                    try:
+                        idx2 = non_archived_links.index(link2)
+                        current_profile.remove_link(idx2)
+                        removed += 1
+                    except ValueError:
+                        pass
+
+                    # Add merged link
+                    current_profile.add_link(merged_link)
+                    manually_merged += 1
+
+            # Close progress dialog if still open
+            if not conflicts:
+                progress_dialog.close()
+
+            # Save the updated profile
+            self._profile_service._profile_repository.update(current_profile)
+
+            # Refresh the view
+            self._refresh_view()
+
+            # Show results dialog
+            results_dialog = DeduplicationResultsDialog(
+                self._root,
+                auto_merged,
+                removed,
+                manually_merged,
+                skipped
+            )
+            results_dialog.show()
+
+        except Exception as e:
+            messagebox.showerror("Deduplication Error", f"Failed to deduplicate links: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
     def _show_analytics(self) -> None:
         """Show analytics dialog."""
-        current_profile = self._profile_service.get_current_profile()
-        all_profiles = self._profile_service.get_all_profiles()
+        try:
+            current_profile = self._profile_service.get_current_profile()
+            all_profiles = self._profile_service.get_all_profiles()
 
-        if current_profile:
+            if not current_profile:
+                messagebox.showinfo("No Profile", "No profile is currently loaded.")
+                return
+
             # Create analytics service
             analytics_service = AnalyticsService(self._profile_service)
 
             # Import browser service for opening links from analytics dialog
-            from services.browser_service import BrowserService
-            browser_service = BrowserService()
+            from services.browser_service import SystemBrowserService
+            browser_service = SystemBrowserService()
 
             dialog = AnalyticsDialog(
                 self._root,
@@ -774,6 +1101,8 @@ class ProfileController:
                 self._profile_service
             )
             dialog.show()
+        except Exception as e:
+            messagebox.showerror("Analytics Error", f"Failed to open analytics: {str(e)}")
 
     def _show_help(self) -> None:
         """Show keyboard shortcuts help dialog."""

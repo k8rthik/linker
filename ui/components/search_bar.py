@@ -1,16 +1,21 @@
 import sys
 import tkinter as tk
-from typing import Callable, Optional
+from typing import Callable, Optional, List
 
 
 class SearchBar:
-    """Component for search functionality."""
-    
+    """Component for search functionality with debounced search and tag filtering."""
+
     def __init__(self, parent: tk.Widget):
         self._parent = parent
         self._on_search_change: Optional[Callable[[str], None]] = None
         self._on_clear: Optional[Callable[[], None]] = None
         self._on_open_all: Optional[Callable[[], None]] = None
+        self._on_filter_change: Optional[Callable[[], None]] = None
+        self._debounce_timer: Optional[str] = None
+        self._debounce_delay_ms = 150  # 150ms debounce delay
+        self._active_tag_filters: List[str] = []
+        self._tag_filter_pills: List[tk.Frame] = []
         self._create_components()
     
     def _create_components(self) -> None:
@@ -40,13 +45,21 @@ class SearchBar:
         # Result count label
         self._result_label = tk.Label(self._frame, text="")
         self._result_label.pack(side=tk.LEFT, padx=(10, 0))
+
+        # Tag filter pills frame
+        self._tag_filters_frame = tk.Frame(self._parent)
+        self._tag_filters_frame.pack(fill=tk.X, pady=(0, 5))
     
     def get_search_term(self) -> str:
         """Get the current search term."""
         return self._search_var.get()
     
     def clear_search(self) -> None:
-        """Clear the search term."""
+        """Clear the search term and cancel any pending debounced search."""
+        # Cancel any pending search
+        if self._debounce_timer:
+            self._search_entry.after_cancel(self._debounce_timer)
+            self._debounce_timer = None
         self._search_var.set("")
         self.focus()
     
@@ -76,7 +89,20 @@ class SearchBar:
         return "break"
     
     def _on_search_var_change(self, *args) -> None:
-        """Handle search variable change."""
+        """Handle search variable change with debouncing."""
+        # Cancel any pending search
+        if self._debounce_timer:
+            self._search_entry.after_cancel(self._debounce_timer)
+
+        # Schedule a new search after the debounce delay
+        self._debounce_timer = self._search_entry.after(
+            self._debounce_delay_ms,
+            self._execute_search
+        )
+
+    def _execute_search(self) -> None:
+        """Execute the actual search after debounce delay."""
+        self._debounce_timer = None
         if self._on_search_change:
             self._on_search_change(self.get_search_term())
     
@@ -103,6 +129,10 @@ class SearchBar:
         """Set callback for open all action."""
         self._on_open_all = callback
 
+    def set_filter_change_callback(self, callback: Callable[[], None]) -> None:
+        """Set callback for filter changes (tag filters)."""
+        self._on_filter_change = callback
+
     def has_focus(self) -> bool:
         """Check if the search entry has focus."""
         return self._search_entry == self._search_entry.focus_get()
@@ -113,4 +143,78 @@ class SearchBar:
         original_callback = self._on_search_change
         self._on_search_change = None
         self._search_var.set(term)
-        self._on_search_change = original_callback 
+        self._on_search_change = original_callback
+
+    def add_tag_filter(self, tag: str) -> None:
+        """Add a tag filter."""
+        if tag and tag not in self._active_tag_filters:
+            self._active_tag_filters.append(tag)
+            self._refresh_tag_filter_pills()
+            if self._on_filter_change:
+                self._on_filter_change()
+
+    def remove_tag_filter(self, tag: str) -> None:
+        """Remove a tag filter."""
+        if tag in self._active_tag_filters:
+            self._active_tag_filters.remove(tag)
+            self._refresh_tag_filter_pills()
+            if self._on_filter_change:
+                self._on_filter_change()
+
+    def clear_tag_filters(self) -> None:
+        """Clear all tag filters."""
+        if self._active_tag_filters:
+            self._active_tag_filters.clear()
+            self._refresh_tag_filter_pills()
+            if self._on_filter_change:
+                self._on_filter_change()
+
+    def get_active_tag_filters(self) -> List[str]:
+        """Get list of active tag filters."""
+        return self._active_tag_filters.copy()
+
+    def _refresh_tag_filter_pills(self) -> None:
+        """Refresh the display of tag filter pills."""
+        # Clear existing pills
+        for widget in self._tag_filters_frame.winfo_children():
+            widget.destroy()
+        self._tag_filter_pills.clear()
+
+        if not self._active_tag_filters:
+            return
+
+        # Add label
+        tk.Label(self._tag_filters_frame, text="Filters:", font=("TkDefaultFont", 8, "bold")).pack(
+            side=tk.LEFT, padx=(0, 5))
+
+        # Create pill for each tag filter
+        for tag in self._active_tag_filters:
+            pill_frame = tk.Frame(self._tag_filters_frame, bg="#4CAF50", relief=tk.RAISED, bd=1)
+            pill_frame.pack(side=tk.LEFT, padx=2)
+
+            tag_label = tk.Label(pill_frame, text=f"tag:{tag}", bg="#4CAF50", fg="white", padx=5, pady=2)
+            tag_label.pack(side=tk.LEFT)
+
+            remove_btn = tk.Button(
+                pill_frame,
+                text="×",
+                bg="#4CAF50",
+                fg="white",
+                relief=tk.FLAT,
+                padx=3,
+                pady=0,
+                command=lambda t=tag: self.remove_tag_filter(t)
+            )
+            remove_btn.pack(side=tk.LEFT)
+
+            self._tag_filter_pills.append(pill_frame)
+
+        # Add clear all button
+        clear_all_btn = tk.Button(
+            self._tag_filters_frame,
+            text="Clear All",
+            command=self.clear_tag_filters,
+            relief=tk.FLAT,
+            fg="blue"
+        )
+        clear_all_btn.pack(side=tk.LEFT, padx=(10, 0))

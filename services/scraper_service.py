@@ -11,7 +11,6 @@ import os
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict
 from urllib.parse import urljoin, urlparse
-from urllib.robotparser import RobotFileParser
 
 import requests
 from bs4 import BeautifulSoup
@@ -151,18 +150,6 @@ class ScraperService:
         self._log(f"Starting scrape of {domain}", "▶")
         self._log(f"Max URLs: {max_urls}, Delay: {request_delay}s", "→")
 
-        # Setup robots.txt parser
-        robots_url = f"https://{domain}/robots.txt"
-        rp = RobotFileParser()
-        rp.set_url(robots_url)
-
-        try:
-            rp.read()
-            self._log("robots.txt loaded successfully", "✓")
-        except Exception as e:
-            # If robots.txt fails, continue anyway (assume allowed)
-            self._log(f"robots.txt not available, continuing anyway", "⚠")
-
         seen_urls = {seed_url}
         to_crawl = [seed_url]
         headers = {"User-Agent": user_agent}
@@ -180,13 +167,6 @@ class ScraperService:
             # Log progress every 10 pages
             if pages_crawled % 10 == 0:
                 self._log(f"Crawled {pages_crawled} pages, found {len(seen_urls)} URLs", "→")
-
-            # Check robots.txt permission
-            try:
-                if not rp.can_fetch(user_agent, current):
-                    continue
-            except Exception:
-                pass  # If check fails, allow
 
             try:
                 resp = requests.get(current, headers=headers, timeout=10)
@@ -223,13 +203,6 @@ class ScraperService:
                 # Filter out non-content pages
                 if not self._is_content_url(abs_url, domain):
                     continue
-
-                # Check robots.txt for this URL
-                try:
-                    if not rp.can_fetch(user_agent, abs_url):
-                        continue
-                except Exception:
-                    pass
 
                 if abs_url not in seen_urls:
                     seen_urls.add(abs_url)

@@ -1,5 +1,7 @@
 import json
 import os
+import threading
+import time
 from abc import ABC, abstractmethod
 from typing import List, Optional
 from models.profile import Profile
@@ -47,13 +49,20 @@ class ProfileRepository(ABC):
 
 
 class JsonProfileRepository(ProfileRepository):
-    """JSON file-based implementation of ProfileRepository."""
-    
+    """JSON file-based implementation of ProfileRepository with optimized persistence."""
+
     def __init__(self, file_path: str = "profiles.json", legacy_links_path: str = "links.json"):
         # Use resource manager to get proper file paths for bundled apps
         self._file_path = str(get_data_file_path(file_path))
         self._legacy_links_path = str(get_data_file_path(legacy_links_path))
         self._profiles: List[Profile] = []
+
+        # Debouncing and background I/O
+        self._write_lock = threading.Lock()
+        self._write_timer: Optional[threading.Timer] = None
+        self._write_delay_seconds = 0.5  # 500ms debounce
+        self._pending_write = False
+
         self._load_profiles()
     
     def find_all(self) -> List[Profile]:
@@ -240,10 +249,63 @@ class JsonProfileRepository(ProfileRepository):
                 profile.is_default = (i == 0 and profile.is_default)
     
     def _persist_profiles(self) -> None:
-        """Save profiles to JSON file."""
-        try:
-            data = [profile.to_dict() for profile in self._profiles]
-            with open(self._file_path, "w") as f:
-                json.dump(data, f, indent=4)
-        except IOError as e:
-            raise RuntimeError(f"Failed to save profiles: {e}")
+        """
+        Schedule a debounced write to JSON file.
+        Uses 500ms debouncing to batch rapid changes into single write.
+        """
+        with self._write_lock:
+            # Cancel any pending write timer
+            if self._write_timer is not None:
+                self._write_timer.cancel()
+
+            # Schedule a new write after the debounce delay
+            self._write_timer = threading.Timer(
+                self._write_delay_seconds,
+                self._execute_write
+            )
+            self._write_timer.daemon = True
+            self._write_timer.start()
+
+    def _execute_write(self) -> None:
+        """
+        Execute the actual file write on background thread.
+        Uses atomic write pattern: write to temp file, then rename.
+        """
+        with self._write_lock:
+            self._write_timer = None
+
+            try:
+                # Serialize profiles to JSON
+                data = [profile.to_dict() for profile in self._profiles]
+                json_content = json.dumps(data, indent=4)
+
+                # Atomic write: write to temp file first
+                temp_path = f"{self._file_path}.tmp"
+                with open(temp_path, "w") as f:
+                    f.write(json_content)
+                    f.flush()
+                    os.fsync(f.fileno())  # Force write to disk
+
+                # Atomic rename (replaces old file)
+                os.replace(temp_path, self._file_path)
+
+            except IOError as e:
+                print(f"Warning: Failed to save profiles: {e}")
+                # Clean up temp file if it exists
+                try:
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                except:
+                    pass
+
+    def flush_pending_writes(self) -> None:
+        """
+        Force immediate write of any pending changes.
+        Useful for cleanup before application exit.
+        """
+        with self._write_lock:
+            if self._write_timer is not None:
+                self._write_timer.cancel()
+                self._write_timer = None
+                # Execute write immediately (blocking)
+                self._execute_write()
