@@ -27,6 +27,7 @@ from ui.dialogs.deduplication_dialog import (
 )
 from ui.dialogs.merge_conflict_dialog import MergeConflictDialog
 from ui.dialogs.tag_manager_dialog import TagManagerDialog
+from ui.dialogs.title_approval_dialog import TitleApprovalDialog
 from utils.title_fetcher import TitleFetcher
 
 
@@ -684,40 +685,52 @@ class ProfileController:
                               f"Fetching titles for {count} link(s) in background...")
 
     def _force_refresh_titles(self) -> None:
-        """Force re-fetch titles for all links."""
+        """Force re-fetch titles for all links with approval dialog."""
         all_links = self._profile_service.get_links()
 
-        urls_to_refresh = [link.url for link in all_links]
-
-        if not urls_to_refresh:
+        if not all_links:
             messagebox.showinfo("Force Refresh Titles",
                               "No links found to refresh.")
             return
 
         if messagebox.askyesno("Force Refresh Titles",
-                              f"Re-fetch titles for all {len(urls_to_refresh)} link(s) "
-                              "from the web?\n\n"
-                              "(This will overwrite all current names with "
-                              "web page titles)"):
-            self._background_force_refresh(urls_to_refresh)
+                              f"Fetch web titles for all {len(all_links)} link(s)?\n\n"
+                              "You'll be able to review and approve each change "
+                              "before it's applied."):
             messagebox.showinfo("Force Refresh Titles",
-                              f"Refreshing titles for {len(urls_to_refresh)} "
-                              f"link(s) in background...")
+                              f"Fetching titles for {len(all_links)} link(s)...\n\n"
+                              "A review dialog will appear when done.")
+            self._background_force_refresh_with_approval(all_links)
 
-    def _background_force_refresh(self, urls: List[str]) -> None:
-        """Force re-fetch titles in background, bypassing should_fetch_title check."""
-        def fetch_and_update():
-            updates = []
-            for url in urls:
-                title = TitleFetcher.fetch_title(url)
-                if title:
-                    updates.append((url, title))
+    def _background_force_refresh_with_approval(self, links: List[Link]) -> None:
+        """Fetch titles in background, then show approval dialog on main thread."""
+        def fetch_titles():
+            # Build (url, current_name, new_title) for each link where title differs
+            changes: List[Tuple[str, str, str]] = []
+            for link in links:
+                title = TitleFetcher.fetch_title(link.url)
+                if title and title != link.name:
+                    changes.append((link.url, link.name, title))
 
-            if updates:
-                self._root.after(0, lambda: self._apply_title_updates(updates))
+            self._root.after(0, lambda: self._show_title_approval(changes))
 
-        thread = threading.Thread(target=fetch_and_update, daemon=True)
+        thread = threading.Thread(target=fetch_titles, daemon=True)
         thread.start()
+
+    def _show_title_approval(self, changes: List[Tuple[str, str, str]]) -> None:
+        """Show approval dialog and apply selected changes."""
+        if not changes:
+            messagebox.showinfo("Force Refresh Titles",
+                              "All titles are already up to date.")
+            return
+
+        dialog = TitleApprovalDialog(self._root, changes)
+        approved = dialog.wait()
+
+        if approved:
+            self._apply_title_updates(approved)
+            messagebox.showinfo("Force Refresh Titles",
+                              f"Updated {len(approved)} link title(s).")
 
     def _run_scraper_on_startup(self) -> None:
         """Run scraper unconditionally on application startup."""
