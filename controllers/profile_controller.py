@@ -697,22 +697,50 @@ class ProfileController:
                               f"Fetch web titles for all {len(all_links)} link(s)?\n\n"
                               "You'll be able to review and approve each change "
                               "before it's applied."):
-            messagebox.showinfo("Force Refresh Titles",
-                              f"Fetching titles for {len(all_links)} link(s)...\n\n"
-                              "A review dialog will appear when done.")
-            self._background_force_refresh_with_approval(all_links)
+            self._show_fetch_progress(all_links)
 
-    def _background_force_refresh_with_approval(self, links: List[Link]) -> None:
-        """Fetch titles in background, then show approval dialog on main thread."""
+    def _show_fetch_progress(self, links: List[Link]) -> None:
+        """Show progress dialog while fetching titles, then transition to approval."""
+        total = len(links)
+
+        # Build progress dialog
+        progress_dialog = tk.Toplevel(self._root)
+        progress_dialog.title("Fetching Titles")
+        progress_dialog.geometry("400x120")
+        progress_dialog.resizable(False, False)
+        progress_dialog.transient(self._root)
+        progress_dialog.grab_set()
+
+        frame = tk.Frame(progress_dialog, padx=20, pady=15)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        status_label = tk.Label(frame, text=f"Fetching 0 / {total}...", anchor=tk.W)
+        status_label.pack(fill=tk.X, pady=(0, 8))
+
+        progress_bar = tk.ttk.Progressbar(frame, maximum=total, mode="determinate")
+        progress_bar.pack(fill=tk.X)
+
+        progress_dialog.protocol("WM_DELETE_WINDOW", lambda: None)  # Prevent closing
+
         def fetch_titles():
-            # Build (url, current_name, new_title) for each link where title differs
             changes: List[Tuple[str, str, str]] = []
-            for link in links:
+            for i, link in enumerate(links):
                 title = TitleFetcher.fetch_title(link.url)
                 if title and title != link.name:
                     changes.append((link.url, link.name, title))
 
-            self._root.after(0, lambda: self._show_title_approval(changes))
+                # Update progress on main thread
+                self._root.after(0, lambda idx=i + 1: _update_progress(idx))
+
+            self._root.after(0, lambda: _on_done(changes))
+
+        def _update_progress(count: int) -> None:
+            progress_bar["value"] = count
+            status_label.config(text=f"Fetching {count} / {total}...")
+
+        def _on_done(changes: List[Tuple[str, str, str]]) -> None:
+            progress_dialog.destroy()
+            self._show_title_approval(changes)
 
         thread = threading.Thread(target=fetch_titles, daemon=True)
         thread.start()
