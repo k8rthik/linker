@@ -558,7 +558,7 @@ class ProfileController:
         return url
 
     def _background_fetch_titles(self, urls: List[str]) -> None:
-        """Fetch titles in background for URLs that need it."""
+        """Fetch titles concurrently in background for URLs that need it."""
         def fetch_and_update():
             all_links = self._profile_service.get_links()
 
@@ -570,12 +570,11 @@ class ProfileController:
                         urls_to_fetch.append(url)
                         break
 
-            # Fetch titles (slow network calls)
-            updates = []
-            for url in urls_to_fetch:
-                title = TitleFetcher.fetch_title(url)
-                if title:
-                    updates.append((url, title))
+            if not urls_to_fetch:
+                return
+
+            # Fetch titles concurrently
+            updates = TitleFetcher.fetch_titles_concurrent(urls_to_fetch)
 
             # Apply updates on main thread
             if updates:
@@ -634,23 +633,18 @@ class ProfileController:
         all_links = self._profile_service.get_links()
 
         # Collect URLs that need title updates
-        urls_to_fetch = []
-        for link in all_links:
-            if TitleFetcher.should_fetch_title(link.url, link.name):
-                urls_to_fetch.append(link.url)
+        urls_to_fetch = [
+            link.url for link in all_links
+            if TitleFetcher.should_fetch_title(link.url, link.name)
+        ]
 
         if not urls_to_fetch:
             return
 
-        # Fetch in background
+        # Fetch concurrently in background
         def fetch_all():
-            updates = []
-            for url in urls_to_fetch:
-                title = TitleFetcher.fetch_title(url)
-                if title:
-                    updates.append((url, title))
+            updates = TitleFetcher.fetch_titles_concurrent(urls_to_fetch)
 
-            # Apply updates on main thread
             if updates:
                 self._root.after(0, lambda: self._apply_title_updates(updates))
 
@@ -685,7 +679,7 @@ class ProfileController:
                               f"Fetching titles for {count} link(s) in background...")
 
     def _force_refresh_titles(self) -> None:
-        """Force re-fetch titles for all links with approval dialog."""
+        """Force re-fetch titles for all links with streaming approval dialog."""
         all_links = self._profile_service.get_links()
 
         if not all_links:
@@ -693,66 +687,37 @@ class ProfileController:
                               "No links found to refresh.")
             return
 
-        if messagebox.askyesno("Force Refresh Titles",
-                              f"Fetch web titles for all {len(all_links)} link(s)?\n\n"
-                              "You'll be able to review and approve each change "
-                              "before it's applied."):
-            self._show_fetch_progress(all_links)
-
-    def _show_fetch_progress(self, links: List[Link]) -> None:
-        """Show progress dialog while fetching titles, then transition to approval."""
-        total = len(links)
-
-        # Build progress dialog
-        progress_dialog = tk.Toplevel(self._root)
-        progress_dialog.title("Fetching Titles")
-        progress_dialog.geometry("400x120")
-        progress_dialog.resizable(False, False)
-        progress_dialog.transient(self._root)
-        progress_dialog.grab_set()
-
-        frame = tk.Frame(progress_dialog, padx=20, pady=15)
-        frame.pack(fill=tk.BOTH, expand=True)
-
-        status_label = tk.Label(frame, text=f"Fetching 0 / {total}...", anchor=tk.W)
-        status_label.pack(fill=tk.X, pady=(0, 8))
-
-        progress_bar = tk.ttk.Progressbar(frame, maximum=total, mode="determinate")
-        progress_bar.pack(fill=tk.X)
-
-        progress_dialog.protocol("WM_DELETE_WINDOW", lambda: None)  # Prevent closing
-
-        def fetch_titles():
-            changes: List[Tuple[str, str, str]] = []
-            for i, link in enumerate(links):
-                title = TitleFetcher.fetch_title(link.url)
-                if title and title != link.name:
-                    changes.append((link.url, link.name, title))
-
-                # Update progress on main thread
-                self._root.after(0, lambda idx=i + 1: _update_progress(idx))
-
-            self._root.after(0, lambda: _on_done(changes))
-
-        def _update_progress(count: int) -> None:
-            progress_bar["value"] = count
-            status_label.config(text=f"Fetching {count} / {total}...")
-
-        def _on_done(changes: List[Tuple[str, str, str]]) -> None:
-            progress_dialog.destroy()
-            self._show_title_approval(changes)
-
-        thread = threading.Thread(target=fetch_titles, daemon=True)
-        thread.start()
-
-    def _show_title_approval(self, changes: List[Tuple[str, str, str]]) -> None:
-        """Show approval dialog and apply selected changes."""
-        if not changes:
-            messagebox.showinfo("Force Refresh Titles",
-                              "All titles are already up to date.")
+        if not messagebox.askyesno(
+            "Force Refresh Titles",
+            f"Fetch web titles for all {len(all_links)} link(s)?\n\n"
+            "You'll be able to review and approve each change "
+            "before it's applied."
+        ):
             return
 
-        dialog = TitleApprovalDialog(self._root, changes)
+        # Open the approval dialog immediately — results stream in live
+        dialog = TitleApprovalDialog(self._root, total=len(all_links))
+
+        # Build a url→name map for comparing results
+        link_names = {link.url: link.name for link in all_links}
+        urls = list(link_names.keys())
+
+        def on_result(url: str, title: Optional[str]) -> None:
+            """Called from worker threads for each completed fetch."""
+            current_name = link_names.get(url, "")
+            if title and title != current_name:
+                self._root.after(0, lambda u=url, c=current_name, t=title:
+                                 dialog.add_change(u, c, t))
+            self._root.after(0, dialog.increment_progress)
+
+        def fetch_all() -> None:
+            TitleFetcher.fetch_titles_concurrent(urls, on_result=on_result)
+            self._root.after(0, dialog.mark_complete)
+
+        thread = threading.Thread(target=fetch_all, daemon=True)
+        thread.start()
+
+        # Block until the user closes the dialog
         approved = dialog.wait()
 
         if approved:

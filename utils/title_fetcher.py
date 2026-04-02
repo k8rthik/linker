@@ -4,21 +4,49 @@ Utility for fetching page titles from URLs.
 
 import requests
 from bs4 import BeautifulSoup
-from typing import Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Optional, List, Tuple, Callable
 from urllib.parse import urlparse
+
+
+# Module-level persistent session for connection pooling.
+# Reuses TCP connections across fetches to the same domain.
+_session: Optional[requests.Session] = None
+
+
+def _get_session() -> requests.Session:
+    """Return a shared session with connection pooling."""
+    global _session
+    if _session is None:
+        _session = requests.Session()
+        _session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
+        # Pool size matches our max concurrent workers
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=20,
+            pool_maxsize=20,
+            max_retries=1,
+        )
+        _session.mount('https://', adapter)
+        _session.mount('http://', adapter)
+    return _session
 
 
 class TitleFetcher:
     """Fetches page titles from URLs."""
 
+    # Default concurrency for batch operations
+    MAX_WORKERS = 15
+
     @staticmethod
-    def fetch_title(url: str, timeout: int = 5) -> Optional[str]:
+    def fetch_title(url: str, timeout: tuple = (3, 5)) -> Optional[str]:
         """
         Fetch the title of a webpage from its URL.
 
         Args:
             url: The URL to fetch the title from
-            timeout: Request timeout in seconds
+            timeout: (connect_timeout, read_timeout) in seconds
 
         Returns:
             The page title if successful, None otherwise
@@ -28,17 +56,19 @@ class TitleFetcher:
             if not url.startswith(('http://', 'https://')):
                 url = f'https://{url}'
 
-            # Make the request with a timeout
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-            response = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+            session = _get_session()
+            response = session.get(url, timeout=timeout, allow_redirects=True)
             response.raise_for_status()
 
             # Reject titles from cross-page redirects (different path = different page)
             original_path = urlparse(url).path.rstrip('/')
             final_path = urlparse(response.url).path.rstrip('/')
             if original_path != final_path:
+                return None
+
+            # Skip non-HTML responses early
+            content_type = response.headers.get('Content-Type', '')
+            if 'html' not in content_type:
                 return None
 
             # Parse the HTML
@@ -48,23 +78,63 @@ class TitleFetcher:
             title_tag = soup.find('title')
             if title_tag and title_tag.string:
                 title = title_tag.string.strip()
-                # Clean up common title patterns
                 title = TitleFetcher._clean_title(title)
                 return title
 
             # Fallback: try og:title meta tag
             og_title = soup.find('meta', property='og:title')
             if og_title and og_title.get('content'):
-                return og_title['content'].strip()
+                return TitleFetcher._clean_title(og_title['content'].strip())
 
             return None
 
         except requests.RequestException:
-            # Network error, timeout, or HTTP error
             return None
         except Exception:
-            # Parsing error or other issue
             return None
+
+    @staticmethod
+    def fetch_titles_concurrent(
+        urls: List[str],
+        on_result: Optional[Callable[[str, Optional[str]], None]] = None,
+        max_workers: Optional[int] = None,
+    ) -> List[Tuple[str, str]]:
+        """
+        Fetch titles for multiple URLs concurrently using a thread pool.
+
+        Args:
+            urls: List of URLs to fetch
+            on_result: Optional callback(url, title_or_none) called as each
+                       fetch completes. Invoked from worker threads — caller
+                       must schedule UI updates via root.after().
+            max_workers: Override default concurrency (default: MAX_WORKERS)
+
+        Returns:
+            List of (url, title) tuples for successful fetches.
+        """
+        workers = max_workers or TitleFetcher.MAX_WORKERS
+        results: List[Tuple[str, str]] = []
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            future_to_url = {
+                pool.submit(TitleFetcher.fetch_title, url): url
+                for url in urls
+            }
+
+            for future in as_completed(future_to_url):
+                url = future_to_url[future]
+                try:
+                    title = future.result()
+                except Exception:
+                    title = None
+
+                if on_result:
+                    on_result(url, title)
+
+                if title:
+                    results.append((url, title))
+
+        return results
 
     @staticmethod
     def _clean_title(title: str) -> str:
