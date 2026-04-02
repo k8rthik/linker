@@ -144,7 +144,7 @@ class TitleApprovalDialog:
         """Add a row to the dialog. Must be called on the main thread."""
         self._changes.append((url, current_name, new_title))
 
-        var = tk.BooleanVar(value=True)
+        var = tk.BooleanVar(value=False)
         var.trace_add("write", lambda *_: self._update_apply_count())
         self._check_vars.append(var)
 
