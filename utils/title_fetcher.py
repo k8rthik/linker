@@ -35,6 +35,12 @@ class TitleFetcher:
             response = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
             response.raise_for_status()
 
+            # Reject titles from cross-page redirects (different path = different page)
+            original_path = urlparse(url).path.rstrip('/')
+            final_path = urlparse(response.url).path.rstrip('/')
+            if original_path != final_path:
+                return None
+
             # Parse the HTML
             soup = BeautifulSoup(response.content, 'html.parser')
 

@@ -153,6 +153,10 @@ class ProfileController:
         tools_menu.add_command(label="Find & Merge Duplicates", command=self._deduplicate_links)
         tools_menu.add_separator()
         tools_menu.add_command(label="Scraper Status", command=self._show_scraper_status)
+        tools_menu.add_separator()
+        tools_menu.add_command(label="Scan Titles", command=self._manual_scan_titles)
+        tools_menu.add_command(label="Force Refresh Auto-Named Titles", command=self._force_refresh_titles)
+        tools_menu.add_separator()
         tools_menu.add_command(label="View Archived Links", command=self._show_archived_links)
 
         # Help menu
@@ -209,6 +213,7 @@ class ProfileController:
         self._root.bind("?", self._on_vim_key("?", self._show_help))
         self._root.bind("S", self._on_vim_key("S", self._toggle_scraper_pause))
         self._root.bind("T", self._on_vim_key("T", self._bulk_add_tags))  # Shift+T for bulk add tags
+        self._root.bind("R", self._on_vim_key("R", self._force_refresh_titles))  # Shift+R for force refresh titles
 
         # Platform-independent shortcuts
         self._root.bind("<Return>", lambda e: self._edit_link())
@@ -556,17 +561,20 @@ class ProfileController:
         def fetch_and_update():
             all_links = self._profile_service.get_links()
 
-            # Find the newly added links and check which need title fetching
-            updates = []
+            # Identify which URLs need title fetching
+            urls_to_fetch = []
             for url in urls:
-                # Find the link with this URL
-                for i, link in enumerate(all_links):
+                for link in all_links:
                     if link.url == url and TitleFetcher.should_fetch_title(url, link.name):
-                        # Fetch the title
-                        title = TitleFetcher.fetch_title(url)
-                        if title:
-                            updates.append((i, title))
+                        urls_to_fetch.append(url)
                         break
+
+            # Fetch titles (slow network calls)
+            updates = []
+            for url in urls_to_fetch:
+                title = TitleFetcher.fetch_title(url)
+                if title:
+                    updates.append((url, title))
 
             # Apply updates on main thread
             if updates:
@@ -576,18 +584,45 @@ class ProfileController:
         thread = threading.Thread(target=fetch_and_update, daemon=True)
         thread.start()
 
-    def _apply_title_updates(self, updates: List[Tuple[int, str]]) -> None:
-        """Apply title updates to links in a batch."""
+    def _apply_title_updates(self, updates: List[Tuple[str, str]]) -> None:
+        """Apply title updates to links by URL lookup.
+
+        Uses URL-based lookup instead of indices to avoid stale-index bugs
+        when the link list changes during background title fetching.
+        Creates new Link instances to avoid mutating live objects.
+        """
         all_links = self._profile_service.get_links()
 
-        # Prepare batch updates (index, updated_link) tuples
+        # Prepare batch updates by finding each URL in the current list
         batch_updates = []
-        for index, new_title in updates:
-            if index < len(all_links):
-                link = all_links[index]
-                link.name = new_title
-                link.last_modified = datetime.now().isoformat()
-                batch_updates.append((index, link))
+        for url, new_title in updates:
+            for i, link in enumerate(all_links):
+                if link.url == url:
+                    updated_link = Link(
+                        name=new_title,
+                        url=link.url,
+                        favorite=link.favorite,
+                        date_added=link.date_added,
+                        last_opened=link.last_opened,
+                        open_count=link.open_count,
+                        archived=link.archived,
+                        first_opened=link.first_opened,
+                        favorite_toggle_count=link.favorite_toggle_count,
+                        last_modified=datetime.now().isoformat(),
+                        time_to_first_open=link.time_to_first_open,
+                        opens_last_30_days=link.opens_last_30_days,
+                        tags=link.tags.copy(),
+                        category=link.category,
+                        domain=link.domain,
+                        notes=link.notes,
+                        source=link.source,
+                        auto_named=True,
+                        link_status=link.link_status,
+                        last_checked=link.last_checked,
+                        http_status_code=link.http_status_code,
+                    )
+                    batch_updates.append((i, updated_link))
+                    break
 
         # Apply all updates in a single batch (one save, one UI refresh)
         if batch_updates:
@@ -597,22 +632,22 @@ class ProfileController:
         """Background scan of existing links to update titles where needed."""
         all_links = self._profile_service.get_links()
 
-        # Find links that need title updates
-        links_to_fetch = []
-        for i, link in enumerate(all_links):
+        # Collect URLs that need title updates
+        urls_to_fetch = []
+        for link in all_links:
             if TitleFetcher.should_fetch_title(link.url, link.name):
-                links_to_fetch.append((i, link.url))
+                urls_to_fetch.append(link.url)
 
-        if not links_to_fetch:
+        if not urls_to_fetch:
             return
 
         # Fetch in background
         def fetch_all():
             updates = []
-            for index, url in links_to_fetch:
+            for url in urls_to_fetch:
                 title = TitleFetcher.fetch_title(url)
                 if title:
-                    updates.append((index, title))
+                    updates.append((url, title))
 
             # Apply updates on main thread
             if updates:
@@ -630,7 +665,14 @@ class ProfileController:
                    if TitleFetcher.should_fetch_title(link.url, link.name))
 
         if count == 0:
-            messagebox.showinfo("Scan Titles", "All links already have good titles!")
+            auto_named_count = sum(1 for link in all_links if link.auto_named)
+            if auto_named_count > 0:
+                messagebox.showinfo("Scan Titles",
+                                  f"All links already have good titles!\n\n"
+                                  f"({auto_named_count} links were auto-named. "
+                                  f"Press Shift+R to force refresh them.)")
+            else:
+                messagebox.showinfo("Scan Titles", "All links already have good titles!")
             return
 
         if messagebox.askyesno("Scan Titles",
@@ -640,6 +682,42 @@ class ProfileController:
             self._scan_and_update_titles()
             messagebox.showinfo("Scan Titles",
                               f"Fetching titles for {count} link(s) in background...")
+
+    def _force_refresh_titles(self) -> None:
+        """Force re-fetch titles for all links."""
+        all_links = self._profile_service.get_links()
+
+        urls_to_refresh = [link.url for link in all_links]
+
+        if not urls_to_refresh:
+            messagebox.showinfo("Force Refresh Titles",
+                              "No links found to refresh.")
+            return
+
+        if messagebox.askyesno("Force Refresh Titles",
+                              f"Re-fetch titles for all {len(urls_to_refresh)} link(s) "
+                              "from the web?\n\n"
+                              "(This will overwrite all current names with "
+                              "web page titles)"):
+            self._background_force_refresh(urls_to_refresh)
+            messagebox.showinfo("Force Refresh Titles",
+                              f"Refreshing titles for {len(urls_to_refresh)} "
+                              f"link(s) in background...")
+
+    def _background_force_refresh(self, urls: List[str]) -> None:
+        """Force re-fetch titles in background, bypassing should_fetch_title check."""
+        def fetch_and_update():
+            updates = []
+            for url in urls:
+                title = TitleFetcher.fetch_title(url)
+                if title:
+                    updates.append((url, title))
+
+            if updates:
+                self._root.after(0, lambda: self._apply_title_updates(updates))
+
+        thread = threading.Thread(target=fetch_and_update, daemon=True)
+        thread.start()
 
     def _run_scraper_on_startup(self) -> None:
         """Run scraper unconditionally on application startup."""
@@ -694,6 +772,14 @@ class ProfileController:
         """Handle scrape completion."""
         if result.get('new_links', 0) > 0:
             print(f"Scraper: Added {result['new_links']} new links from {result.get('domain', 'unknown')}")
+            # Fetch titles for newly added links that still have URL-as-name
+            all_links = self._profile_service.get_links()
+            urls_needing_titles = [
+                link.url for link in all_links
+                if TitleFetcher.should_fetch_title(link.url, link.name)
+            ]
+            if urls_needing_titles:
+                self._background_fetch_titles(urls_needing_titles)
 
         # Update scraper status dialog if it exists
         if self._scraper_status_dialog and tk.Toplevel.winfo_exists(self._scraper_status_dialog._dialog):
