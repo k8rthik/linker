@@ -79,6 +79,7 @@ class HelpDialog:
             ("/", "Focus search bar"),
             ("?", "Show this help dialog"),
             ("S (Shift+s)", "Toggle scraper pause/resume"),
+            ("R (Shift+r)", "Force refresh auto-named titles"),
         ]
 
         for key, description in vim_shortcuts:
@@ -132,6 +133,21 @@ class HelpDialog:
 
         for key, description in mouse_shortcuts:
             self._add_shortcut_row(mouse_frame, key, description)
+
+        # Menu features
+        menu_frame = tk.LabelFrame(scrollable_frame, text="Menu Features",
+                                   padx=15, pady=10, font=("", 11, "bold"))
+        menu_frame.pack(fill=tk.X, padx=10, pady=10)
+
+        menu_items = [
+            ("Tools → View Archived Links", "Browse, restore, or permanently delete soft-deleted links"),
+            ("Tools → Find & Merge Duplicates", "Detect and merge duplicate URLs"),
+            ("Tools → Scan Titles", "Fetch web titles for links with URL-based names"),
+            ("Tags → Manage Tags...", "View and edit tags across the profile"),
+        ]
+
+        for key, description in menu_items:
+            self._add_shortcut_row(menu_frame, key, description)
 
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")

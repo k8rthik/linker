@@ -287,14 +287,47 @@ class ProfileService:
         """Delete multiple links from the current profile."""
         if not self._current_profile:
             return False
-        
+
         # Sort indices in descending order to avoid index shifting
         for index in sorted(indices, reverse=True):
             self._current_profile.remove_link(index)
-        
+
         self._save_current_profile()
         self._notify_observers()
         return True
+
+    def permanently_delete_links(self, links: List[Link]) -> int:
+        """Permanently remove links from the current profile. Returns count deleted."""
+        if not self._current_profile or not links:
+            return 0
+
+        deleted = 0
+        for link in links:
+            if self._current_profile.permanently_delete_link(link):
+                deleted += 1
+
+        if deleted > 0:
+            self._save_current_profile()
+            self._notify_observers()
+
+        return deleted
+
+    def restore_archived_links(self, links: List[Link]) -> int:
+        """Unarchive a set of links and persist. Returns count restored."""
+        if not self._current_profile or not links:
+            return 0
+
+        restored = 0
+        for link in links:
+            if link.is_archived():
+                link.unarchive()
+                restored += 1
+
+        if restored > 0:
+            self._save_current_profile()
+            self._notify_observers()
+
+        return restored
     
     def toggle_favorite(self, index: int) -> bool:
         """Toggle favorite status of a link."""

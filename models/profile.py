@@ -86,6 +86,14 @@ class Profile:
         """Get all archived links in this profile."""
         return [link for link in self._links if link.is_archived()]
 
+    def permanently_delete_link(self, link: Link) -> bool:
+        """Permanently remove a link from this profile (hard delete)."""
+        try:
+            self._links.remove(link)
+            return True
+        except ValueError:
+            return False
+
     def to_dict(self) -> dict:
         """Convert profile to dictionary for serialization."""
         return {

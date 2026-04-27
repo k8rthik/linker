@@ -1243,12 +1243,25 @@ class ProfileController:
             return
 
         def on_restore(restored_links: List[Link]) -> None:
-            """Handle restoration of archived links."""
-            # Save changes
+            """Persist restored links and refresh observers."""
             self._profile_service._save_current_profile()
             self._profile_service._notify_observers()
 
-        ArchivedLinksDialog(self._root, archived_links, on_restore)
+        def on_permanent_delete(deleted_links: List[Link]) -> None:
+            """Permanently remove links from the underlying profile."""
+            self._profile_service.permanently_delete_links(deleted_links)
+
+        def on_open(link: Link) -> None:
+            """Open an archived link in the browser without changing its state."""
+            self._profile_service._browser_service.open_url(link.get_formatted_url())
+
+        ArchivedLinksDialog(
+            self._root,
+            archived_links,
+            on_restore=on_restore,
+            on_permanent_delete=on_permanent_delete,
+            on_open=on_open,
+        )
 
     def _toggle_scraper_pause(self) -> None:
         """Toggle the scraper pause state."""
