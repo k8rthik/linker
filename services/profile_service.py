@@ -365,11 +365,13 @@ class ProfileService:
         if not query and not tag_filter and not domain_filter:
             return self.get_links()
 
-        # Use search index for fast O(log n) search
-        matching_indices = self._search_index.search(query, tag_filter, domain_filter)
-
-        # Convert indices to links
+        # Rebuild the index if the profile has been mutated outside the service
+        # (the indexed snapshot can drift from the live link list otherwise).
         links = self._current_profile.links
+        if len(self._search_index._indexed_links) != len(links):
+            self._rebuild_search_index()
+
+        matching_indices = self._search_index.search(query, tag_filter, domain_filter)
         return [links[idx] for idx in matching_indices if idx < len(links)]
     
     def sort_links(self, links: List[Link], column: str, reverse: bool = False) -> List[Link]:

@@ -266,46 +266,42 @@ class JsonProfileRepository(ProfileRepository):
             self._write_timer.daemon = True
             self._write_timer.start()
 
+    def _write_to_disk(self) -> None:
+        """Serialize profiles and atomically replace the JSON file. Raises on I/O failure."""
+        data = [profile.to_dict() for profile in self._profiles]
+        json_content = json.dumps(data, indent=4)
+
+        temp_path = f"{self._file_path}.tmp"
+        try:
+            with open(temp_path, "w") as f:
+                f.write(json_content)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_path, self._file_path)
+        except (IOError, OSError):
+            try:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+            except OSError:
+                pass
+            raise
+
     def _execute_write(self) -> None:
-        """
-        Execute the actual file write on background thread.
-        Uses atomic write pattern: write to temp file, then rename.
-        """
+        """Background-thread entry point. Swallows I/O errors so the timer doesn't crash."""
         with self._write_lock:
             self._write_timer = None
-
             try:
-                # Serialize profiles to JSON
-                data = [profile.to_dict() for profile in self._profiles]
-                json_content = json.dumps(data, indent=4)
-
-                # Atomic write: write to temp file first
-                temp_path = f"{self._file_path}.tmp"
-                with open(temp_path, "w") as f:
-                    f.write(json_content)
-                    f.flush()
-                    os.fsync(f.fileno())  # Force write to disk
-
-                # Atomic rename (replaces old file)
-                os.replace(temp_path, self._file_path)
-
-            except IOError as e:
+                self._write_to_disk()
+            except (IOError, OSError) as e:
                 print(f"Warning: Failed to save profiles: {e}")
-                # Clean up temp file if it exists
-                try:
-                    if os.path.exists(temp_path):
-                        os.remove(temp_path)
-                except:
-                    pass
 
     def flush_pending_writes(self) -> None:
         """
-        Force immediate write of any pending changes.
-        Useful for cleanup before application exit.
+        Force immediate, synchronous write of any pending changes.
+        Raises IOError/OSError if the write fails.
         """
         with self._write_lock:
             if self._write_timer is not None:
                 self._write_timer.cancel()
                 self._write_timer = None
-                # Execute write immediately (blocking)
-                self._execute_write()
+            self._write_to_disk()
