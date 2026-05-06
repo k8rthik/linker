@@ -123,9 +123,11 @@ class SearchIndex:
 class ProfileService:
     """Service for managing profiles and their links."""
     
-    def __init__(self, profile_repository: ProfileRepository, browser_service: BrowserService):
+    def __init__(self, profile_repository: ProfileRepository, browser_service: BrowserService,
+                 cache_service: Optional["CacheService"] = None):
         self._profile_repository = profile_repository
         self._browser_service = browser_service
+        self._cache_service = cache_service
         self._current_profile: Optional[Profile] = None
         self._observers: List[Callable[[], None]] = []
         self._search_index = SearchIndex()
@@ -347,19 +349,32 @@ class ProfileService:
         return False
     
     def open_links(self, indices: List[int]) -> None:
-        """Open multiple links in browser."""
+        """Open multiple links. Cached links open via the local file player;
+        uncached links open in the browser. This is the single decision point
+        for online-vs-offline open behavior — every other open path delegates
+        here so the routing is consistent."""
         if not self._current_profile:
             return
-        
+
         links = self._current_profile.links
         for index in indices:
             if 0 <= index < len(links):
                 link = links[index]
-                self._browser_service.open_url(link.get_formatted_url())
+                self._open_link(link)
                 link.mark_as_opened()
-        
+
         self._save_current_profile()
         self._notify_observers()
+
+    def _open_link(self, link: Link) -> None:
+        """Route a single open: prefer the cached local file, fall back to URL."""
+        from services.link_opener import open_local_file  # local import to keep tests patchable
+
+        if self._cache_service is not None:
+            cached_path = self._cache_service.get_cached_path(link)
+            if cached_path is not None and open_local_file(cached_path):
+                return
+        self._browser_service.open_url(link.get_formatted_url())
     
     def search_links(self, query: str, tag_filter: Optional[str] = None,
                      domain_filter: Optional[str] = None) -> List[Link]:

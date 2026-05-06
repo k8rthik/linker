@@ -52,19 +52,23 @@ class LinkManagerApp:
 
         # Create services (business logic layer)
         self._browser_service = SystemBrowserService()
-        self._profile_service = ProfileService(
-            self._profile_repository, self._browser_service
-        )
 
-        # Create scraper service
-        self._scraper_service = ScraperService(self._profile_service)
-
-        # Create offline cache service (auto-caches favorited videos via yt-dlp)
+        # Create offline cache service before ProfileService so the latter can
+        # route opens through the cache when a local copy exists.
         self._cache_service = CacheService(
             repository=self._profile_repository,
             downloader=YtDlpDownloader(),
             cache_dir=get_cache_directory("videos"),
         )
+
+        self._profile_service = ProfileService(
+            self._profile_repository,
+            self._browser_service,
+            cache_service=self._cache_service,
+        )
+
+        # Create scraper service
+        self._scraper_service = ScraperService(self._profile_service)
 
     def _setup_window(self) -> None:
         """Setup main window properties."""
