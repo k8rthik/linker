@@ -29,8 +29,11 @@ import tkinter as tk
 from controllers.profile_controller import ProfileController
 from repositories.profile_repository import JsonProfileRepository
 from services.browser_service import SystemBrowserService
+from services.cache_service import CacheService
 from services.profile_service import ProfileService
 from services.scraper_service import ScraperService
+from utils.resource_manager import get_cache_directory
+from utils.video_downloader import YtDlpDownloader
 
 
 class LinkManagerApp:
@@ -56,6 +59,13 @@ class LinkManagerApp:
         # Create scraper service
         self._scraper_service = ScraperService(self._profile_service)
 
+        # Create offline cache service (auto-caches favorited videos via yt-dlp)
+        self._cache_service = CacheService(
+            repository=self._profile_repository,
+            downloader=YtDlpDownloader(),
+            cache_dir=get_cache_directory("videos"),
+        )
+
     def _setup_window(self) -> None:
         """Setup main window properties."""
         self._root.title(f"linker v{__version__}")
@@ -67,7 +77,8 @@ class LinkManagerApp:
         self._controller = ProfileController(
             self._root,
             self._profile_service,
-            self._scraper_service
+            self._scraper_service,
+            self._cache_service,
         )
 
     def run(self) -> None:

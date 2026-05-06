@@ -7,6 +7,7 @@ from datetime import datetime
 from models.link import Link
 from models.profile import Profile
 from services.profile_service import ProfileService
+from services.cache_service import CacheService
 from services.import_export_service import ImportExportService
 from services.analytics_service import AnalyticsService
 from services.deduplication_service import DeduplicationService
@@ -38,10 +39,12 @@ class ProfileController:
     """Controller for managing profiles and their links with UI interactions."""
     
     def __init__(self, root: tk.Tk, profile_service: ProfileService,
-                 scraper_service: Optional['ScraperService'] = None):
+                 scraper_service: Optional['ScraperService'] = None,
+                 cache_service: Optional['CacheService'] = None):
         self._root = root
         self._profile_service = profile_service
         self._scraper_service = scraper_service
+        self._cache_service = cache_service
         self._import_export_service = ImportExportService(profile_service)
         self._deduplication_service = DeduplicationService()
         self._current_search_term = ""
@@ -820,10 +823,25 @@ class ProfileController:
         EditLinkDialog(self._root, link, on_save, get_all_tags=self._profile_service.get_all_tags)
     
     def _toggle_favorite(self) -> None:
-        """Toggle favorite status of selected links."""
+        """Toggle favorite status of selected links. Newly favorited links are
+        enqueued for offline cache when the cache service is available."""
         indices = self._get_selected_indices()
+        links = self._profile_service.get_links()
+        profile = self._profile_service.get_current_profile()
+        profile_name = profile.name if profile else None
+
         for index in indices:
+            if not (0 <= index < len(links)):
+                continue
+            link = links[index]
             self._profile_service.toggle_favorite(index)
+            # If toggle resulted in favorite=True, schedule offline cache
+            if (
+                link.favorite
+                and self._cache_service is not None
+                and profile_name is not None
+            ):
+                self._cache_service.enqueue(profile_name, link)
     
     def _toggle_read_status(self) -> None:
         """Toggle read status of selected links."""
