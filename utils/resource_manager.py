@@ -101,10 +101,16 @@ class ResourceManager:
     def get_app_support_directory(self) -> Path:
         """Get the application support directory."""
         return self._app_support_dir
-    
+
     def get_resource_directory(self) -> Path:
         """Get the resource directory."""
         return self._resource_dir
+
+    def get_cache_directory(self, subdir: str = "videos") -> Path:
+        """Get (and create) a cache subdirectory under app support."""
+        cache_dir = self._app_support_dir / "cache" / subdir
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        return cache_dir
 
 
 # Global instance
@@ -129,3 +135,8 @@ def is_bundled() -> bool:
 def get_app_support_directory() -> Path:
     """Get the application support directory."""
     return _resource_manager.get_app_support_directory()
+
+
+def get_cache_directory(subdir: str = "videos") -> Path:
+    """Get (and create) the cache directory for offline-cached files."""
+    return _resource_manager.get_cache_directory(subdir)
