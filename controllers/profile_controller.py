@@ -29,6 +29,11 @@ from ui.dialogs.deduplication_dialog import (
 from ui.dialogs.merge_conflict_dialog import MergeConflictDialog
 from ui.dialogs.tag_manager_dialog import TagManagerDialog
 from ui.dialogs.title_approval_dialog import TitleApprovalDialog
+from models.link import (
+    CACHE_STATUS_CACHED,
+    CACHE_STATUS_FAILED,
+    CACHE_STATUS_NONE,
+)
 from utils.title_fetcher import TitleFetcher
 from utils.weighted_random import weighted_choice
 
@@ -189,6 +194,11 @@ class ProfileController:
         self._link_list_view.set_delete_key_callback(self._on_delete_key_pressed)
         self._link_list_view.set_space_key_callback(self._open_selected)
         self._link_list_view.set_sort_callback(self._on_sort_requested)
+        self._link_list_view.set_right_click_callback(self._on_link_right_click)
+
+        # Cache service: refresh the list when a download finishes (worker thread)
+        if self._cache_service is not None:
+            self._cache_service.set_on_status_change(self._on_cache_status_changed)
     
     def _setup_keyboard_shortcuts(self) -> None:
         """Setup vim-style keyboard shortcuts."""
@@ -822,6 +832,61 @@ class ProfileController:
 
         EditLinkDialog(self._root, link, on_save, get_all_tags=self._profile_service.get_all_tags)
     
+    def _on_cache_status_changed(self, profile_name: str, link: Link) -> None:
+        """Cache worker thread fired a status transition. Marshal a refresh to the UI thread."""
+        try:
+            self._root.after(0, self._refresh_view)
+        except RuntimeError:
+            # Tk has been torn down — ignore.
+            pass
+
+    def _on_link_right_click(self, event, indices: List[int]) -> None:
+        """Show a context menu for the right-clicked link, with cache actions."""
+        if self._cache_service is None or not indices:
+            return
+
+        links = self._profile_service.get_links()
+        index = indices[0]
+        if not (0 <= index < len(links)):
+            return
+        link = links[index]
+        profile = self._profile_service.get_current_profile()
+        if profile is None:
+            return
+        profile_name = profile.name
+
+        menu = tk.Menu(self._root, tearoff=0)
+        status = link.cache_status
+        if status == CACHE_STATUS_CACHED:
+            menu.add_command(
+                label="Delete cached file",
+                command=lambda: self._cache_service.delete_cached(profile_name, link),
+            )
+        elif status == CACHE_STATUS_FAILED:
+            menu.add_command(
+                label=f"Retry cache (last error: {self._truncate(link.cache_error)})",
+                command=lambda: self._cache_service.retry(profile_name, link),
+            )
+        elif status == CACHE_STATUS_NONE:
+            menu.add_command(
+                label="Cache for offline",
+                command=lambda: self._cache_service.enqueue(profile_name, link),
+            )
+        else:
+            # pending / downloading — nothing actionable yet
+            menu.add_command(label=f"Cache status: {status}", state=tk.DISABLED)
+
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    @staticmethod
+    def _truncate(text: Optional[str], max_len: int = 50) -> str:
+        if not text:
+            return ""
+        return text if len(text) <= max_len else text[: max_len - 1] + "…"
+
     def _toggle_favorite(self) -> None:
         """Toggle favorite status of selected links. Newly favorited links are
         enqueued for offline cache when the cache service is available."""

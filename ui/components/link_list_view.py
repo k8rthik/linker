@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import List, Callable, Optional
 from models.link import Link
+from ui.components.link_marker import format_link_marker
 from utils.date_formatter import DateFormatter
 
 
@@ -22,6 +23,8 @@ class LinkListView:
         self._on_delete_key: Optional[Callable[[List[int]], None]] = None
         self._on_space_key: Optional[Callable[[], None]] = None
         self._on_sort: Optional[Callable[[str, bool], None]] = None
+        # (event, indices) — controller decides whether to show a menu
+        self._on_right_click: Optional[Callable[[object, List[int]], None]] = None
 
         self._create_components()
     
@@ -33,7 +36,7 @@ class LinkListView:
         
         # Configure columns
         self._tree.heading("#0", text="Fav")
-        self._tree.column("#0", width=40, minwidth=40)
+        self._tree.column("#0", width=55, minwidth=55)
         
         self._tree.heading("name", text="Name")
         self._tree.column("name", width=200, minwidth=150)
@@ -65,6 +68,10 @@ class LinkListView:
         self._tree.bind("<Double-Button-1>", self._on_double_click_event)
         self._tree.bind("<BackSpace>", self._on_delete_key_event)
         self._tree.bind("<KeyPress-space>", self._on_space_key_event)
+        # Right-click on macOS is Button-2 or Control-Button-1; bind both plus Button-3 for Linux/Win
+        self._tree.bind("<Button-2>", self._on_right_click_event)
+        self._tree.bind("<Button-3>", self._on_right_click_event)
+        self._tree.bind("<Control-Button-1>", self._on_right_click_event)
         
         # Bind robust arrow key navigation
         self._tree.bind("<Up>", self._on_arrow_up)
@@ -110,7 +117,7 @@ class LinkListView:
 
         # Add filtered links
         for link in self._filtered_links:
-            favorite_icon = "★" if link.favorite else ""
+            marker = format_link_marker(link)
             name = link.name
             url = link.url
             date_added = DateFormatter.format_datetime(link.date_added)
@@ -119,7 +126,7 @@ class LinkListView:
             # Use the mapping to find the original index
             original_index = self._link_to_index.get(id(link), -1)
             if original_index >= 0:
-                self._tree.insert("", "end", iid=str(original_index), text=favorite_icon,
+                self._tree.insert("", "end", iid=str(original_index), text=marker,
                                values=(name, url, date_added, last_opened))
     
     def get_selected_indices(self) -> List[int]:
@@ -280,6 +287,19 @@ class LinkListView:
         if self._on_space_key:
             self._on_space_key()
             return "break"  # Prevent default behavior
+
+    def _on_right_click_event(self, event) -> str:
+        """Handle right-click. Selects the row under the cursor (if any) before
+        delegating to the controller, so the menu acts on the visible target."""
+        if not self._on_right_click:
+            return "break"
+        row_id = self._tree.identify_row(event.y)
+        if row_id and row_id not in self._tree.selection():
+            self._tree.selection_set(row_id)
+            self._tree.focus(row_id)
+        indices = self.get_selected_indices()
+        self._on_right_click(event, indices)
+        return "break"
     
     def _on_column_clicked(self, column: str) -> None:
         """Handle column header click for sorting."""
@@ -504,6 +524,10 @@ class LinkListView:
     def set_sort_callback(self, callback: Callable[[str, bool], None]) -> None:
         """Set callback for sort events."""
         self._on_sort = callback
+
+    def set_right_click_callback(self, callback: Callable[[object, List[int]], None]) -> None:
+        """Set callback for right-click events. Called with (event, selected_indices)."""
+        self._on_right_click = callback
     
     def get_focused_position(self) -> Optional[int]:
         """Get the position of the currently focused item in the filtered list."""

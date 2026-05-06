@@ -84,6 +84,10 @@ class CacheService:
     def is_downloader_available(self) -> bool:
         return self._downloader.is_available()
 
+    def set_on_status_change(self, callback: Optional[StatusChangeCallback]) -> None:
+        """Register or clear the status-change callback. Invoked from the worker thread."""
+        self._on_status_change = callback
+
     def enqueue(self, profile_name: str, link: Link) -> None:
         """Schedule a download. No-op if already cached. Marks failed immediately if downloader unavailable."""
         if link.is_cached():
