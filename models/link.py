@@ -4,6 +4,24 @@ from utils.date_parser import safe_parse_iso
 from utils.url_parser import extract_domain
 
 
+# Cache status constants for offline video caching.
+# A link is considered "openable offline" only when status == CACHE_STATUS_CACHED
+# AND cached_path points to an existing file on disk (file existence checked at open time).
+CACHE_STATUS_NONE = "none"
+CACHE_STATUS_PENDING = "pending"
+CACHE_STATUS_DOWNLOADING = "downloading"
+CACHE_STATUS_CACHED = "cached"
+CACHE_STATUS_FAILED = "failed"
+
+VALID_CACHE_STATUSES = {
+    CACHE_STATUS_NONE,
+    CACHE_STATUS_PENDING,
+    CACHE_STATUS_DOWNLOADING,
+    CACHE_STATUS_CACHED,
+    CACHE_STATUS_FAILED,
+}
+
+
 class Link:
     """Model representing a link with metadata."""
     
@@ -26,7 +44,12 @@ class Link:
                  # Link health fields
                  link_status: str = "unknown",
                  last_checked: Optional[str] = None,
-                 http_status_code: Optional[int] = None):
+                 http_status_code: Optional[int] = None,
+                 # Offline cache fields
+                 cache_status: str = CACHE_STATUS_NONE,
+                 cached_path: Optional[str] = None,
+                 cache_size_bytes: Optional[int] = None,
+                 cache_error: Optional[str] = None):
         self._validate_required_fields(name, url)
         self._name = name.strip()
         self._url = url.strip()
@@ -56,6 +79,16 @@ class Link:
         self._link_status = link_status
         self._last_checked = last_checked
         self._http_status_code = http_status_code
+
+        # Offline cache
+        if cache_status not in VALID_CACHE_STATUSES:
+            raise ValueError(f"Invalid cache_status: {cache_status}")
+        self._cache_status = cache_status
+        self._cached_path = cached_path
+        self._cache_size_bytes = (
+            max(0, cache_size_bytes) if cache_size_bytes is not None else None
+        )
+        self._cache_error = cache_error
     
     @property
     def name(self) -> str:
@@ -230,6 +263,75 @@ class Link:
     def http_status_code(self, value: Optional[int]) -> None:
         self._http_status_code = value
 
+    # Offline cache properties
+    @property
+    def cache_status(self) -> str:
+        return self._cache_status
+
+    @cache_status.setter
+    def cache_status(self, value: str) -> None:
+        if value not in VALID_CACHE_STATUSES:
+            raise ValueError(f"Invalid cache_status: {value}")
+        self._cache_status = value
+
+    @property
+    def cached_path(self) -> Optional[str]:
+        return self._cached_path
+
+    @cached_path.setter
+    def cached_path(self, value: Optional[str]) -> None:
+        self._cached_path = value
+
+    @property
+    def cache_size_bytes(self) -> Optional[int]:
+        return self._cache_size_bytes
+
+    @cache_size_bytes.setter
+    def cache_size_bytes(self, value: Optional[int]) -> None:
+        self._cache_size_bytes = max(0, value) if value is not None else None
+
+    @property
+    def cache_error(self) -> Optional[str]:
+        return self._cache_error
+
+    @cache_error.setter
+    def cache_error(self, value: Optional[str]) -> None:
+        self._cache_error = value
+
+    def is_cached(self) -> bool:
+        """True iff the link is fully cached and the path is set.
+        Caller must still verify the file exists on disk before opening."""
+        return (
+            self._cache_status == CACHE_STATUS_CACHED
+            and self._cached_path is not None
+        )
+
+    def mark_cache_pending(self) -> None:
+        self._cache_status = CACHE_STATUS_PENDING
+        self._cache_error = None
+
+    def mark_cache_downloading(self) -> None:
+        self._cache_status = CACHE_STATUS_DOWNLOADING
+
+    def mark_cached(self, path: str, size_bytes: int) -> None:
+        self._cache_status = CACHE_STATUS_CACHED
+        self._cached_path = path
+        self._cache_size_bytes = max(0, size_bytes)
+        self._cache_error = None
+
+    def mark_cache_failed(self, error: str) -> None:
+        self._cache_status = CACHE_STATUS_FAILED
+        self._cache_error = error
+        self._cached_path = None
+        self._cache_size_bytes = None
+
+    def clear_cache(self) -> None:
+        """Reset cache state to none (used after deleting the on-disk file)."""
+        self._cache_status = CACHE_STATUS_NONE
+        self._cached_path = None
+        self._cache_size_bytes = None
+        self._cache_error = None
+
     def mark_as_opened(self) -> None:
         """Mark the link as opened with current timestamp and increment open count."""
         now = datetime.now().isoformat()
@@ -295,7 +397,12 @@ class Link:
             # Link health
             "link_status": self._link_status,
             "last_checked": self._last_checked,
-            "http_status_code": self._http_status_code
+            "http_status_code": self._http_status_code,
+            # Offline cache
+            "cache_status": self._cache_status,
+            "cached_path": self._cached_path,
+            "cache_size_bytes": self._cache_size_bytes,
+            "cache_error": self._cache_error
         }
 
     @classmethod
@@ -325,7 +432,12 @@ class Link:
             # Link health
             link_status=data.get("link_status", "unknown"),
             last_checked=data.get("last_checked"),
-            http_status_code=data.get("http_status_code")
+            http_status_code=data.get("http_status_code"),
+            # Offline cache
+            cache_status=data.get("cache_status", CACHE_STATUS_NONE),
+            cached_path=data.get("cached_path"),
+            cache_size_bytes=data.get("cache_size_bytes"),
+            cache_error=data.get("cache_error")
         )
     
     def get_formatted_url(self) -> str:

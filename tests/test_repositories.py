@@ -527,6 +527,34 @@ class TestJsonProfileRepositoryMigration:
                 profiles = repo.find_all()
                 assert profiles[0].links[0].source == "legacy"
 
+    def test_legacy_profiles_load_with_default_cache_fields(self):
+        """Profiles file without cache fields loads cleanly with cache_status='none'."""
+        from models.link import CACHE_STATUS_NONE
+
+        profiles_data = [{
+            "name": "Test Profile",
+            "links": [
+                {"name": "Link 1", "url": "https://example.com"}
+            ],
+            "created_at": datetime.now().isoformat(),
+            "is_default": True
+        }]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, "profiles.json")
+
+            with open(file_path, "w") as f:
+                json.dump(profiles_data, f)
+
+            with patch('repositories.profile_repository.get_data_file_path', return_value=file_path):
+                repo = JsonProfileRepository(file_path=file_path)
+
+                link = repo.find_all()[0].links[0]
+                assert link.cache_status == CACHE_STATUS_NONE
+                assert link.cached_path is None
+                assert link.cache_size_bytes is None
+                assert link.cache_error is None
+
 
 class TestJsonProfileRepositoryValidation:
     """Test cases for profile validation."""
