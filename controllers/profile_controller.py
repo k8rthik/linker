@@ -21,6 +21,7 @@ from ui.dialogs.analytics_dialog import AnalyticsDialog
 from ui.dialogs.help_dialog import HelpDialog
 from ui.dialogs.scraper_status_dialog import ScraperStatusDialog
 from ui.dialogs.archived_links_dialog import ArchivedLinksDialog
+from ui.dialogs.cache_dialog import CacheDialog
 from ui.dialogs.deduplication_dialog import (
     DeduplicationPreviewDialog,
     DeduplicationProgressDialog,
@@ -170,6 +171,8 @@ class ProfileController:
         tools_menu.add_command(label="Force Refresh Auto-Named Titles", command=self._force_refresh_titles)
         tools_menu.add_separator()
         tools_menu.add_command(label="View Archived Links", command=self._show_archived_links)
+        tools_menu.add_separator()
+        tools_menu.add_command(label="Manage Offline Cache", command=self._show_cache_dialog)
 
         # Help menu
         help_menu = tk.Menu(menubar, tearoff=0)
@@ -1312,6 +1315,13 @@ class ProfileController:
             on_permanent_delete=on_permanent_delete,
             on_open=on_open,
         )
+
+    def _show_cache_dialog(self) -> None:
+        """Show the offline cache management dialog."""
+        if self._cache_service is None:
+            messagebox.showinfo("Offline Cache", "Cache service is not available.")
+            return
+        CacheDialog(self._root, self._cache_service)
 
     def _toggle_scraper_pause(self) -> None:
         """Toggle the scraper pause state."""
