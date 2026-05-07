@@ -12,6 +12,8 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Dict
 from urllib.parse import urljoin, urlparse
 
+from utils.url_parser import extract_domain
+
 import requests
 from bs4 import BeautifulSoup
 
@@ -218,11 +220,7 @@ class ScraperService:
 
     def _is_same_domain(self, url: str, domain: str) -> bool:
         """Check if URL belongs to the specified domain (no subdomains)."""
-        try:
-            parsed = urlparse(url)
-            return parsed.netloc.lower() == domain
-        except Exception:
-            return False
+        return extract_domain(url).lower() == domain.lower()
 
     def _is_content_url(self, url: str, domain: str) -> bool:
         """

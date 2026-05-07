@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List
-from urllib.parse import urlparse
+from utils.url_parser import extract_domain
 
 
 class Link:
@@ -361,11 +361,7 @@ class Link:
     @staticmethod
     def _extract_domain(url: str) -> str:
         """Extract domain from URL."""
-        try:
-            parsed = urlparse(url if url.startswith(('http://', 'https://')) else f'https://{url}')
-            return parsed.netloc or ""
-        except Exception:
-            return ""
+        return extract_domain(url)
 
     def _validate_required_fields(self, name: str, url: str) -> None:
         """Validate that required fields are not empty."""
