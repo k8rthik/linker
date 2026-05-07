@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import messagebox
 from typing import Optional, Callable, List
 from models.link import Link
+from ui.theme import COLORS, FONTS
 from utils.date_formatter import DateFormatter
 
 
@@ -42,14 +43,14 @@ class EditLinkDialog:
     def _create_form_fields(self, parent: tk.Frame) -> None:
         """Create form input fields."""
         # Name field
-        tk.Label(parent, text="Name:", font=("TkDefaultFont", 9, "bold")).grid(
+        tk.Label(parent, text="Name:", font=FONTS["label_bold"]).grid(
             row=0, column=0, sticky="w", pady=(0, 5))
         self._name_var = tk.StringVar(value=self._original_link.name)
         self._name_entry = tk.Entry(parent, textvariable=self._name_var, width=60)
         self._name_entry.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 15))
         
         # URL field
-        tk.Label(parent, text="URL:", font=("TkDefaultFont", 9, "bold")).grid(
+        tk.Label(parent, text="URL:", font=FONTS["label_bold"]).grid(
             row=2, column=0, sticky="w", pady=(0, 5))
         self._url_var = tk.StringVar(value=self._original_link.url)
         self._url_entry = tk.Entry(parent, textvariable=self._url_var, width=60)
@@ -58,11 +59,11 @@ class EditLinkDialog:
         # Favorite checkbox
         self._favorite_var = tk.BooleanVar(value=self._original_link.favorite)
         favorite_check = tk.Checkbutton(parent, text="Favorite", variable=self._favorite_var,
-                                       font=("TkDefaultFont", 9, "bold"))
+                                       font=FONTS["label_bold"])
         favorite_check.grid(row=4, column=0, sticky="w", pady=(0, 15))
 
         # Tags section
-        tk.Label(parent, text="Tags:", font=("TkDefaultFont", 9, "bold")).grid(
+        tk.Label(parent, text="Tags:", font=FONTS["label_bold"]).grid(
             row=5, column=0, sticky="w", pady=(0, 5))
 
         # Tag input with autocomplete
@@ -86,7 +87,7 @@ class EditLinkDialog:
         self._autocomplete_frame.grid_remove()  # Hide initially
 
         # Tag pills container
-        tk.Label(parent, text="Current tags:", font=("TkDefaultFont", 8), fg="gray").grid(
+        tk.Label(parent, text="Current tags:", font=FONTS["label_small"], fg="gray").grid(
             row=8, column=0, sticky="w", pady=(5, 0))
 
         self._tags_container = tk.Frame(parent)
@@ -94,7 +95,7 @@ class EditLinkDialog:
         self._refresh_tag_pills()
 
         # Date Added field
-        tk.Label(parent, text="Date Added:", font=("TkDefaultFont", 9, "bold")).grid(
+        tk.Label(parent, text="Date Added:", font=FONTS["label_bold"]).grid(
             row=10, column=0, sticky="w", pady=(0, 5))
         self._date_added_var = tk.StringVar(value=self._original_link.date_added)
         self._date_added_entry = tk.Entry(parent, textvariable=self._date_added_var, width=30)
@@ -102,10 +103,10 @@ class EditLinkDialog:
 
         # Date format help text
         tk.Label(parent, text="Format: YYYY-MM-DDTHH:MM:SS (ISO format)",
-                font=("TkDefaultFont", 8), fg="gray").grid(row=12, column=0, sticky="w", pady=(0, 15))
+                font=FONTS["label_small"], fg="gray").grid(row=12, column=0, sticky="w", pady=(0, 15))
 
         # Last Opened field
-        tk.Label(parent, text="Last Opened:", font=("TkDefaultFont", 9, "bold")).grid(
+        tk.Label(parent, text="Last Opened:", font=FONTS["label_bold"]).grid(
             row=13, column=0, sticky="w", pady=(0, 5))
         self._last_opened_var = tk.StringVar(value=self._original_link.last_opened or "")
         self._last_opened_entry = tk.Entry(parent, textvariable=self._last_opened_var, width=30)
@@ -113,7 +114,7 @@ class EditLinkDialog:
 
         # Last opened help text
         tk.Label(parent, text="Format: YYYY-MM-DDTHH:MM:SS (leave empty for 'never opened')",
-                font=("TkDefaultFont", 8), fg="gray").grid(row=15, column=0, sticky="w", pady=(0, 20))
+                font=FONTS["label_small"], fg="gray").grid(row=15, column=0, sticky="w", pady=(0, 20))
 
         # Configure grid weights
         parent.columnconfigure(0, weight=1)
@@ -156,16 +157,16 @@ class EditLinkDialog:
 
         # Create pill for each tag
         for tag in self._current_tags:
-            pill_frame = tk.Frame(self._tags_container, bg="#e0e0e0", relief=tk.RAISED, bd=1)
+            pill_frame = tk.Frame(self._tags_container, bg=COLORS["pill_bg"], relief=tk.RAISED, bd=1)
             pill_frame.pack(side=tk.LEFT, padx=2, pady=2)
 
-            tag_label = tk.Label(pill_frame, text=tag, bg="#e0e0e0", padx=5, pady=2)
+            tag_label = tk.Label(pill_frame, text=tag, bg=COLORS["pill_bg"], padx=5, pady=2)
             tag_label.pack(side=tk.LEFT)
 
             remove_btn = tk.Button(
                 pill_frame,
                 text="×",
-                bg="#e0e0e0",
+                bg=COLORS["pill_bg"],
                 fg="red",
                 relief=tk.FLAT,
                 padx=3,
@@ -178,7 +179,7 @@ class EditLinkDialog:
 
         # Show message if no tags
         if not self._current_tags:
-            no_tags_label = tk.Label(self._tags_container, text="No tags", fg="gray", font=("TkDefaultFont", 8))
+            no_tags_label = tk.Label(self._tags_container, text="No tags", fg="gray", font=FONTS["label_small"])
             no_tags_label.pack(side=tk.LEFT)
 
     def _add_tag_from_entry(self) -> None:

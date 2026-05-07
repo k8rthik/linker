@@ -8,6 +8,8 @@ from typing import List, Optional, Callable
 from datetime import datetime
 import threading
 
+from ui.theme import COLORS, FONTS
+
 from models.link import Link
 from models.profile import Profile
 from ui.components.link_viewer import LinkViewerComponent
@@ -119,7 +121,7 @@ class AnalyticsDialog:
 
         # Title
         title = tk.Label(scrollable_frame, text="Your Link Analytics Dashboard",
-                        font=("", 16, "bold"), fg="#2196F3")
+                        font=FONTS["title_large"], fg=COLORS["primary"])
         title.pack(pady=(10, 20))
 
         # Key Metrics Grid
@@ -127,27 +129,27 @@ class AnalyticsDialog:
         metrics_frame.pack(fill=tk.X, padx=20, pady=10)
 
         self._create_metric_card(metrics_frame, "Total Links", str(stats["total_links"]),
-                                "#4CAF50", row=0, col=0)
+                                COLORS["success"], row=0, col=0)
         self._create_metric_card(metrics_frame, "Favorites",
                                 f"{stats['favorites']} ({stats['favorites_pct']:.0f}%)",
-                                "#FF9800", row=0, col=1)
+                                COLORS["accent_orange"], row=0, col=1)
         self._create_metric_card(metrics_frame, "Total Opens", str(stats["total_opens"]),
-                                "#2196F3", row=0, col=2)
+                                COLORS["primary"], row=0, col=2)
         self._create_metric_card(metrics_frame, "Avg Opens/Link", f"{stats['avg_opens']:.1f}",
-                                "#9C27B0", row=0, col=3)
+                                COLORS["accent_purple"], row=0, col=3)
 
         self._create_metric_card(metrics_frame, "Current Streak",
                                 f"{streaks['current_streak']} days",
-                                "#F44336", row=1, col=0)
+                                COLORS["danger"], row=1, col=0)
         self._create_metric_card(metrics_frame, "Longest Streak",
                                 f"{streaks['longest_streak']} days",
-                                "#FF5722", row=1, col=1)
+                                COLORS["accent_deep_orange"], row=1, col=1)
         self._create_metric_card(metrics_frame, "Quality Score",
                                 f"{health_score['overall_score']:.0f}/100",
-                                "#00BCD4", row=1, col=2)
+                                COLORS["accent_cyan"], row=1, col=2)
         self._create_metric_card(metrics_frame, "Unread Links",
                                 f"{stats['unread']} ({stats['unread_pct']:.0f}%)",
-                                "#FFC107", row=1, col=3)
+                                COLORS["warning"], row=1, col=3)
 
         # Insights Section
         insights_frame = tk.LabelFrame(scrollable_frame, text="Insights & Recommendations",
@@ -583,11 +585,11 @@ class AnalyticsDialog:
         unchecked_links = self._analytics_service.get_unchecked_links(self._profile)
 
         tk.Label(summary_frame, text=f"Broken Links: {len(broken_links)}",
-                font=("", 10), fg="#F44336").pack(anchor="w", pady=2)
+                font=FONTS["body_default"], fg=COLORS["danger"]).pack(anchor="w", pady=2)
         tk.Label(summary_frame, text=f"Redirect Links: {len(redirect_links)}",
-                font=("", 10), fg="#FFC107").pack(anchor="w", pady=2)
+                font=FONTS["body_default"], fg=COLORS["warning"]).pack(anchor="w", pady=2)
         tk.Label(summary_frame, text=f"Unchecked Links: {len(unchecked_links)}",
-                font=("", 10), fg="#666666").pack(anchor="w", pady=2)
+                font=FONTS["body_default"], fg=COLORS["muted"]).pack(anchor="w", pady=2)
 
         btn_frame = tk.Frame(parent)
         btn_frame.pack(fill=tk.X, padx=10, pady=(0, 10))

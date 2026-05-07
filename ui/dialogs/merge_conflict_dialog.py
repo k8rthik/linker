@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import Optional, Tuple
 from models.link import Link
+from ui.theme import FONTS
 from utils.date_formatter import DateFormatter
 
 
@@ -32,7 +33,7 @@ class MergeConflictDialog:
         # Explanation
         ttk.Label(main_frame,
                  text="These duplicate links have different custom names.\nChoose which name to keep:",
-                 font=("TkDefaultFont", 10)).pack(pady=(0, 15))
+                 font=FONTS["body"]).pack(pady=(0, 15))
 
         # URL display
         url_frame = ttk.LabelFrame(main_frame, text="Common URL")
@@ -96,7 +97,7 @@ class MergeConflictDialog:
 
     def _add_field(self, parent: ttk.Frame, label: str, value: str, row: int) -> None:
         """Add a field display to the frame."""
-        ttk.Label(parent, text=label, font=("TkDefaultFont", 9, "bold")).grid(
+        ttk.Label(parent, text=label, font=FONTS["label_bold"]).grid(
             row=row, column=0, sticky="w", pady=3)
         ttk.Label(parent, text=value).grid(row=row, column=1, sticky="w", padx=(10, 0), pady=3)
 

@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Dict, List, Optional
 from models.link import Link
+from ui.theme import FONTS
 
 
 class DeduplicationPreviewDialog:
@@ -219,7 +220,7 @@ class DeduplicationResultsDialog:
 
         # Title
         ttk.Label(main_frame, text="Deduplication Complete",
-                 font=("TkDefaultFont", 12, "bold")).pack(pady=(0, 15))
+                 font=FONTS["heading"]).pack(pady=(0, 15))
 
         # Results
         results_frame = ttk.Frame(main_frame)

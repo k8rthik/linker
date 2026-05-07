@@ -3,6 +3,8 @@ Dialog for viewing and managing archived (soft-deleted) links.
 """
 
 import tkinter as tk
+
+from ui.theme import COLORS
 from tkinter import ttk, messagebox
 from typing import List, Optional, Callable
 from models.link import Link
@@ -59,7 +61,7 @@ class ArchivedLinksDialog:
             main_frame,
             text="These links were soft-deleted. Restore to bring them back, or permanently delete to remove.",
             font=("", 9),
-            fg="#666666",
+            fg=COLORS["muted"],
         )
         subtitle.pack(pady=(0, 10))
 
@@ -130,7 +132,7 @@ class ArchivedLinksDialog:
             text="Delete Permanently",
             command=self._permanently_delete_selected,
             width=18,
-            fg="#a00000",
+            fg=COLORS["danger_dark"],
         ).pack(side=tk.LEFT, padx=5)
 
         tk.Button(btn_frame, text="Close", command=self._dialog.destroy, width=10).pack(

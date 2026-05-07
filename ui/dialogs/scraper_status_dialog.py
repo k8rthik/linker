@@ -3,6 +3,8 @@ Dialog for displaying scraper status and progress.
 """
 
 import tkinter as tk
+
+from ui.theme import COLORS
 from tkinter import ttk
 from datetime import datetime
 
@@ -42,7 +44,7 @@ class ScraperStatusDialog:
 
         tk.Label(status_frame, text="Status:", font=("", 11, "bold")).pack(side=tk.LEFT)
         self._status_label = tk.Label(status_frame, text="Idle", font=("", 11),
-                                      fg="#666666")
+                                      fg=COLORS["muted"])
         self._status_label.pack(side=tk.LEFT, padx=10)
 
         # Progress bar
@@ -85,7 +87,7 @@ class ScraperStatusDialog:
         self._dialog.transient(self._parent)
         # Don't grab_set() - allow interaction with main window
 
-    def update_status(self, status: str, color: str = "#666666") -> None:
+    def update_status(self, status: str, color: str = COLORS["muted"]) -> None:
         """Update the status label."""
         if self._status_label:
             self._status_label.config(text=status, fg=color)
@@ -106,7 +108,7 @@ class ScraperStatusDialog:
     def start_scraping(self, domain: str) -> None:
         """Indicate scraping has started."""
         self._is_active = True
-        self.update_status("Scraping...", "#0066cc")
+        self.update_status("Scraping...", COLORS["status_running"])
         self.update_progress(f"Scraping {domain}")
         self._progress_bar.start(10)
         self.add_log(f"Started scraping {domain}", "▶")
@@ -116,10 +118,10 @@ class ScraperStatusDialog:
         self._is_active = False
         self._progress_bar.stop()
         if success:
-            self.update_status("Completed", "#00aa00")
+            self.update_status("Completed", COLORS["status_active"])
             self.update_progress("")
         else:
-            self.update_status("Failed", "#cc0000")
+            self.update_status("Failed", COLORS["status_failed"])
             self.update_progress("")
 
     def scraping_complete(self, urls_found: int, links_added: int, duplicates: int) -> None:
@@ -150,11 +152,11 @@ class ScraperStatusDialog:
         if is_paused:
             self._pause_btn.config(text="Resume")
             self.add_log("Scraper paused", "⏸")
-            self.update_status("Paused", "#ff9900")
+            self.update_status("Paused", COLORS["status_paused"])
         else:
             self._pause_btn.config(text="Pause")
             self.add_log("Scraper resumed", "▶")
-            self.update_status("Active", "#00aa00")
+            self.update_status("Active", COLORS["status_active"])
 
     def is_active(self) -> bool:
         """Check if scraper is currently active."""

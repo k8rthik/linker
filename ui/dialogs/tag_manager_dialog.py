@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 from typing import List, Callable, Dict
 from models.link import Link
+from ui.theme import FONTS
 
 
 class TagManagerDialog:
@@ -31,7 +32,7 @@ class TagManagerDialog:
         main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
 
         # Title
-        tk.Label(main_frame, text="Tag Manager", font=("TkDefaultFont", 14, "bold")).pack(
+        tk.Label(main_frame, text="Tag Manager", font=FONTS["title"]).pack(
             pady=(0, 10))
 
         # Instructions

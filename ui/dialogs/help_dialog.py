@@ -3,6 +3,8 @@ Dialog for displaying keyboard shortcuts and help information.
 """
 
 import tkinter as tk
+
+from ui.theme import COLORS, FONTS
 from tkinter import ttk
 
 
@@ -91,7 +93,7 @@ class HelpDialog:
         multiplier_frame.pack(fill=tk.X, padx=10, pady=10)
 
         multiplier_text = tk.Text(multiplier_frame, height=5, wrap=tk.WORD,
-                                  relief=tk.FLAT, bg="#f0f0f0")
+                                  relief=tk.FLAT, bg=COLORS["panel_bg"])
         multiplier_text.insert("1.0",
             "Type numbers (0-9) before commands to repeat them:\n\n"
             "Examples:\n"
@@ -159,7 +161,7 @@ class HelpDialog:
 
         # Key label (fixed width, monospace)
         key_label = tk.Label(row, text=key, font=("Courier", 11, "bold"),
-                            width=20, anchor="w", fg="#0066cc")
+                            width=20, anchor="w", fg=COLORS["link"])
         key_label.pack(side=tk.LEFT)
 
         # Description label
@@ -211,5 +213,5 @@ class HelpDialog:
         # Architecture
         arch_label = tk.Label(about_frame,
                              text="Built with Python, Tkinter, BeautifulSoup4, and requests",
-                             font=("", 9), fg="#666666")
+                             font=FONTS["body_default_sm"], fg=COLORS["muted"])
         arch_label.pack(pady=(20, 0))

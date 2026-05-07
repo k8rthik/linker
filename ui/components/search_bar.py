@@ -2,6 +2,8 @@ import sys
 import tkinter as tk
 from typing import Callable, Optional, List
 
+from ui.theme import COLORS, FONTS
+
 
 class SearchBar:
     """Component for search functionality with debounced search and tag filtering."""
@@ -184,21 +186,21 @@ class SearchBar:
             return
 
         # Add label
-        tk.Label(self._tag_filters_frame, text="Filters:", font=("TkDefaultFont", 8, "bold")).pack(
+        tk.Label(self._tag_filters_frame, text="Filters:", font=FONTS["label_small_bold"]).pack(
             side=tk.LEFT, padx=(0, 5))
 
         # Create pill for each tag filter
         for tag in self._active_tag_filters:
-            pill_frame = tk.Frame(self._tag_filters_frame, bg="#4CAF50", relief=tk.RAISED, bd=1)
+            pill_frame = tk.Frame(self._tag_filters_frame, bg=COLORS["success"], relief=tk.RAISED, bd=1)
             pill_frame.pack(side=tk.LEFT, padx=2)
 
-            tag_label = tk.Label(pill_frame, text=f"tag:{tag}", bg="#4CAF50", fg="white", padx=5, pady=2)
+            tag_label = tk.Label(pill_frame, text=f"tag:{tag}", bg=COLORS["success"], fg="white", padx=5, pady=2)
             tag_label.pack(side=tk.LEFT)
 
             remove_btn = tk.Button(
                 pill_frame,
                 text="×",
-                bg="#4CAF50",
+                bg=COLORS["success"],
                 fg="white",
                 relief=tk.FLAT,
                 padx=3,
