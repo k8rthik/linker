@@ -10,6 +10,7 @@ import json
 
 from models.link import Link
 from models.profile import Profile
+from utils.date_parser import safe_parse_iso
 
 
 class AnalyticsService:
@@ -132,13 +133,9 @@ class AnalyticsService:
         # Count opens in the period
         recent_opens = 0
         for link in links:
-            if link.last_opened:
-                try:
-                    last_opened_dt = datetime.fromisoformat(link.last_opened)
-                    if last_opened_dt >= cutoff_date:
-                        recent_opens += 1
-                except (ValueError, AttributeError):
-                    pass
+            last_opened_dt = safe_parse_iso(link.last_opened)
+            if last_opened_dt is not None and last_opened_dt >= cutoff_date:
+                recent_opens += 1
 
         # Get daily counts
         daily_counts = self.get_daily_open_counts(links, days)
@@ -165,14 +162,10 @@ class AnalyticsService:
         cutoff_date = datetime.now() - timedelta(days=days)
 
         for link in links:
-            if link.last_opened:
-                try:
-                    last_opened_dt = datetime.fromisoformat(link.last_opened)
-                    if last_opened_dt >= cutoff_date:
-                        date_str = last_opened_dt.strftime("%Y-%m-%d")
-                        daily_counts[date_str] += 1
-                except (ValueError, AttributeError):
-                    pass
+            last_opened_dt = safe_parse_iso(link.last_opened)
+            if last_opened_dt is not None and last_opened_dt >= cutoff_date:
+                date_str = last_opened_dt.strftime("%Y-%m-%d")
+                daily_counts[date_str] += 1
 
         # Create list of all dates in range
         result = []
@@ -196,16 +189,12 @@ class AnalyticsService:
         weekly_counts = defaultdict(int)
 
         for link in links:
-            if link.last_opened:
-                try:
-                    last_opened_dt = datetime.fromisoformat(link.last_opened)
-                    # Calculate week label (e.g., "Week 1", "Week 2")
-                    weeks_ago = (datetime.now() - last_opened_dt).days // 7
-                    if weeks_ago < 4:  # Only last 4 weeks
-                        week_label = f"Week {4 - weeks_ago}"
-                        weekly_counts[week_label] += 1
-                except (ValueError, AttributeError):
-                    pass
+            last_opened_dt = safe_parse_iso(link.last_opened)
+            if last_opened_dt is not None:
+                weeks_ago = (datetime.now() - last_opened_dt).days // 7
+                if weeks_ago < 4:
+                    week_label = f"Week {4 - weeks_ago}"
+                    weekly_counts[week_label] += 1
 
         return dict(weekly_counts)
 
@@ -258,13 +247,9 @@ class AnalyticsService:
         stale_links = []
 
         for link in profile.links:
-            if link.last_opened:
-                try:
-                    last_opened_dt = datetime.fromisoformat(link.last_opened)
-                    if last_opened_dt < cutoff_date:
-                        stale_links.append(link)
-                except (ValueError, AttributeError):
-                    pass
+            last_opened_dt = safe_parse_iso(link.last_opened)
+            if last_opened_dt is not None and last_opened_dt < cutoff_date:
+                stale_links.append(link)
 
         return sorted(stale_links, key=lambda l: l.last_opened or "")
 
@@ -288,12 +273,9 @@ class AnalyticsService:
 
         for link in profile.links:
             if link.is_unread():
-                try:
-                    date_added_dt = datetime.fromisoformat(link.date_added)
-                    if date_added_dt < cutoff_date:
-                        old_unread.append(link)
-                except (ValueError, AttributeError):
-                    pass
+                date_added_dt = safe_parse_iso(link.date_added)
+                if date_added_dt is not None and date_added_dt < cutoff_date:
+                    old_unread.append(link)
 
         return sorted(old_unread, key=lambda l: l.date_added)
 
@@ -465,12 +447,9 @@ class AnalyticsService:
         hourly_counts = defaultdict(int)
 
         for link in profile.links:
-            if link.last_opened:
-                try:
-                    dt = datetime.fromisoformat(link.last_opened)
-                    hourly_counts[dt.hour] += 1
-                except (ValueError, AttributeError):
-                    pass
+            dt = safe_parse_iso(link.last_opened)
+            if dt is not None:
+                hourly_counts[dt.hour] += 1
 
         # Fill in missing hours with 0
         return {hour: hourly_counts.get(hour, 0) for hour in range(24)}
@@ -489,13 +468,10 @@ class AnalyticsService:
         day_counts = defaultdict(int)
 
         for link in profile.links:
-            if link.last_opened:
-                try:
-                    dt = datetime.fromisoformat(link.last_opened)
-                    day_name = day_names[dt.weekday()]
-                    day_counts[day_name] += 1
-                except (ValueError, AttributeError):
-                    pass
+            dt = safe_parse_iso(link.last_opened)
+            if dt is not None:
+                day_name = day_names[dt.weekday()]
+                day_counts[day_name] += 1
 
         # Return in order Mon-Sun with 0 for missing days
         return {day: day_counts.get(day, 0) for day in day_names}
@@ -542,12 +518,9 @@ class AnalyticsService:
         # Get all unique dates with activity
         active_dates = set()
         for link in profile.links:
-            if link.last_opened:
-                try:
-                    dt = datetime.fromisoformat(link.last_opened)
-                    active_dates.add(dt.date())
-                except (ValueError, AttributeError):
-                    pass
+            dt = safe_parse_iso(link.last_opened)
+            if dt is not None:
+                active_dates.add(dt.date())
 
         if not active_dates:
             return {
@@ -609,23 +582,20 @@ class AnalyticsService:
         score += open_score
 
         # Recency score (30 points max)
-        if link.last_opened:
-            try:
-                last_opened_dt = datetime.fromisoformat(link.last_opened)
-                days_since = (datetime.now() - last_opened_dt).days
+        last_opened_dt = safe_parse_iso(link.last_opened)
+        if last_opened_dt is not None:
+            days_since = (datetime.now() - last_opened_dt).days
 
-                if days_since <= 7:
-                    recency_score = 30
-                elif days_since <= 30:
-                    recency_score = 20
-                elif days_since <= 90:
-                    recency_score = 10
-                else:
-                    recency_score = 5
+            if days_since <= 7:
+                recency_score = 30
+            elif days_since <= 30:
+                recency_score = 20
+            elif days_since <= 90:
+                recency_score = 10
+            else:
+                recency_score = 5
 
-                score += recency_score
-            except (ValueError, AttributeError):
-                pass
+            score += recency_score
 
         # Time to first open score (15 points max)
         # Faster opens = higher engagement

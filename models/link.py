@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Optional, List
+from utils.date_parser import safe_parse_iso
 from utils.url_parser import extract_domain
 
 
@@ -236,12 +237,11 @@ class Link:
         # Set first_opened if this is the first time opening
         if self._first_opened is None:
             self._first_opened = now
-            # Calculate time to first open in seconds
-            try:
-                date_added_dt = datetime.fromisoformat(self._date_added)
-                first_opened_dt = datetime.fromisoformat(self._first_opened)
+            date_added_dt = safe_parse_iso(self._date_added)
+            first_opened_dt = safe_parse_iso(self._first_opened)
+            if date_added_dt is not None and first_opened_dt is not None:
                 self._time_to_first_open = int((first_opened_dt - date_added_dt).total_seconds())
-            except (ValueError, AttributeError):
+            else:
                 self._time_to_first_open = None
 
         self._last_opened = now
