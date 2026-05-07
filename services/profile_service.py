@@ -1,3 +1,9 @@
+"""Live profile and link state: CRUD, search, and lightweight aggregate stats.
+
+For derived metrics (engagement scores, time-series, recommendations) see
+AnalyticsService, which composes on top of this state.
+"""
+
 from typing import List, Optional, Callable, Dict, Set
 from models.profile import Profile
 from models.link import Link

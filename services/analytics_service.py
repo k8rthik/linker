@@ -1,5 +1,8 @@
-"""
-Service for analytics calculations and insights.
+"""Rolled-up metrics and engagement analytics over the live profile state.
+
+ProfileService owns lightweight live state queries (counts, link lookups);
+AnalyticsService owns the richer derived metrics (engagement scores, time
+series, recommendations) computed on top of that state.
 """
 
 from datetime import datetime, timedelta
@@ -22,7 +25,7 @@ class AnalyticsService:
 
     # ===== CORE STATISTICS =====
 
-    def get_profile_stats(self, profile: Profile) -> Dict[str, Any]:
+    def get_detailed_profile_stats(self, profile: Profile) -> Dict[str, Any]:
         """
         Get comprehensive statistics for a profile.
 
@@ -45,7 +48,7 @@ class AnalyticsService:
         avg_opens = total_opens / total_links if total_links > 0 else 0
 
         # Domain breakdown
-        domain_counts = self.get_domain_breakdown(profile)
+        domain_counts = self.count_domain_usage(profile)
         most_active_domain = max(domain_counts.items(), key=lambda x: x[1])[0] if domain_counts else "N/A"
 
         return {
@@ -281,7 +284,7 @@ class AnalyticsService:
 
     # ===== CATEGORY/TAG ANALYSIS =====
 
-    def get_category_breakdown(self, profile: Profile) -> Dict[str, int]:
+    def count_category_usage(self, profile: Profile) -> Dict[str, int]:
         """
         Get breakdown of links by category.
 
@@ -299,7 +302,7 @@ class AnalyticsService:
 
         return dict(category_counts)
 
-    def get_tag_breakdown(self, profile: Profile) -> Dict[str, int]:
+    def count_tag_usage(self, profile: Profile) -> Dict[str, int]:
         """
         Get breakdown of links by tag.
 
@@ -321,7 +324,7 @@ class AnalyticsService:
 
         return dict(sorted(tag_counts.items(), key=lambda x: x[1], reverse=True))
 
-    def get_domain_breakdown(self, profile: Profile) -> Dict[str, int]:
+    def count_domain_usage(self, profile: Profile) -> Dict[str, int]:
         """
         Get breakdown of links by domain.
 
@@ -742,7 +745,7 @@ class AnalyticsService:
         comparisons = []
 
         for profile in profiles:
-            stats = self.get_profile_stats(profile)
+            stats = self.get_detailed_profile_stats(profile)
             health = self.get_profile_health_score(profile)
             streaks = self.get_usage_streaks(profile)
 
@@ -771,7 +774,7 @@ class AnalyticsService:
         """
         insights = []
 
-        stats = self.get_profile_stats(profile)
+        stats = self.get_detailed_profile_stats(profile)
         streaks = self.get_usage_streaks(profile)
         peak_time, peak_count = self.get_peak_usage_time(profile)
 
@@ -825,7 +828,7 @@ class AnalyticsService:
         report = {
             "generated_at": datetime.now().isoformat(),
             "profile_name": profile.name,
-            "profile_stats": self.get_profile_stats(profile),
+            "profile_stats": self.get_detailed_profile_stats(profile),
             "all_profiles_stats": self.get_all_profiles_stats(profiles),
             "usage_trends": self.get_usage_trends(profile, days=30),
             "hourly_distribution": self.get_hourly_distribution(profile),

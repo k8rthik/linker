@@ -111,7 +111,7 @@ class AnalyticsDialog:
         scrollbar.pack(side="right", fill="y")
 
         # Get all the data we need
-        stats = self._analytics_service.get_profile_stats(self._profile)
+        stats = self._analytics_service.get_detailed_profile_stats(self._profile)
         streaks = self._analytics_service.get_usage_streaks(self._profile)
         health_score = self._analytics_service.get_profile_health_score(self._profile)
         peak_time, peak_count = self._analytics_service.get_peak_usage_time(self._profile)
@@ -205,7 +205,7 @@ class AnalyticsDialog:
 
     def _create_overview_tab(self, parent: tk.Frame) -> None:
         """Create the overview statistics tab."""
-        stats = self._analytics_service.get_profile_stats(self._profile)
+        stats = self._analytics_service.get_detailed_profile_stats(self._profile)
 
         # Current profile stats
         stats_frame = tk.LabelFrame(parent, text="Current Profile Statistics", padx=10, pady=10)
@@ -541,7 +541,7 @@ class AnalyticsDialog:
         link_count_frame = tk.LabelFrame(parent, text="Top Domains by Link Count", padx=10, pady=10)
         link_count_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        domain_breakdown = self._analytics_service.get_domain_breakdown(self._profile)
+        domain_breakdown = self._analytics_service.count_domain_usage(self._profile)
         if domain_breakdown:
             link_count_text = tk.Text(link_count_frame, height=12, width=70, font=("Courier", 10))
             link_count_text.pack(fill=tk.BOTH, expand=True)
