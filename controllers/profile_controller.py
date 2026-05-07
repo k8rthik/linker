@@ -29,6 +29,9 @@ from ui.dialogs.merge_conflict_dialog import MergeConflictDialog
 from ui.dialogs.tag_manager_dialog import TagManagerDialog
 from ui.dialogs.title_approval_dialog import TitleApprovalDialog
 from utils.title_fetcher import TitleFetcher
+from utils.weighted_random import weighted_choice
+
+FAVORITE_BIAS_EXPONENT = 3.0
 
 
 class ProfileController:
@@ -898,38 +901,6 @@ class ProfileController:
             on_filter_by_tag=self._search_bar.add_tag_filter
         )
 
-    def _weighted_random_choice(self, indices: List[int], links: List[Link]) -> int:
-        """
-        Select a random index from the given indices using weighted probability.
-        Links with lower open_count have higher probability of being selected.
-
-        Weight formula: 1 / (open_count + 1)
-        - Never opened (count=0): weight = 1.0
-        - Opened once (count=1): weight = 0.5
-        - Opened twice (count=2): weight = 0.33
-        - And so on...
-
-        Args:
-            indices: List of valid indices to choose from
-            links: The full list of links
-
-        Returns:
-            The selected index
-        """
-        import random
-
-        # Calculate weights for each index
-        weights = []
-        for idx in indices:
-            link = links[idx]
-            # Inverse weight: less opened = higher weight
-            weight = 1.0 / (link.open_count + 1)
-            weights.append(weight)
-
-        # Use random.choices with weights (returns list, so take first element)
-        selected_index = random.choices(indices, weights=weights, k=1)[0]
-        return selected_index
-
     def _open_random(self) -> None:
         """Open a random link (weighted by open_count) and select it in the UI."""
         links = self._profile_service.get_links()
@@ -938,9 +909,8 @@ class ProfileController:
             return
 
         indices = list(range(len(links)))
-        index = self._weighted_random_choice(indices, links)
+        index = weighted_choice(indices, links)
 
-        # Set flag to prevent selection restoration during data change
         self._performing_targeted_selection = True
         self._profile_service.open_links([index])
         self._link_list_view.select_and_scroll_to(index)
@@ -954,16 +924,14 @@ class ProfileController:
             messagebox.showinfo("Info", "No unread links available.")
             return
 
-        # For unread links, all have open_count=0, so weights are equal (true random)
-        index = self._weighted_random_choice(unread_indices, links)
+        index = weighted_choice(unread_indices, links)
 
-        # Set flag to prevent selection restoration during data change
         self._performing_targeted_selection = True
         self._profile_service.open_links([index])
         self._link_list_view.select_and_scroll_to(index)
 
     def _open_random_favorite(self) -> None:
-        """Open a random favorite link (weighted by open_count) and select it in the UI."""
+        """Open a random favorite link, biased toward unopened ones."""
         links = self._profile_service.get_links()
         favorite_indices = [i for i, link in enumerate(links) if link.favorite]
 
@@ -971,9 +939,8 @@ class ProfileController:
             messagebox.showinfo("Info", "No favorite links available.")
             return
 
-        index = self._weighted_random_choice(favorite_indices, links)
+        index = weighted_choice(favorite_indices, links, exponent=FAVORITE_BIAS_EXPONENT)
 
-        # Set flag to prevent selection restoration during data change
         self._performing_targeted_selection = True
         self._profile_service.open_links([index])
         self._link_list_view.select_and_scroll_to(index)

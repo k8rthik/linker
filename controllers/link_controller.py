@@ -66,9 +66,6 @@ class LinkController:
             ("Edit", self._edit_link),
             ("Toggle Favorite", self._toggle_favorite),
             ("Mark Read/Unread", self._toggle_read_status),
-            ("Open Random", self._open_random),
-            ("Open Random Favorite", self._open_random_favorite),
-            ("Open Random Unread", self._open_random_unread)
         ]
         
         for text, command in buttons:
@@ -101,17 +98,11 @@ class LinkController:
             # macOS shortcuts (using Command key)
             self._root.bind("<Command-d>", lambda e: self._toggle_favorite())
             self._root.bind("<Command-e>", lambda e: self._toggle_read_status())
-            self._root.bind("<Command-r>", lambda e: self._open_random())
-            self._root.bind("<Command-Shift-f>", lambda e: self._open_random_favorite())  # Changed to avoid conflict with search
-            self._root.bind("<Command-u>", lambda e: self._open_random_unread())
             self._root.bind("<Command-l>", lambda e: self._focus_table())
         else:
             # Windows/Linux shortcuts (using Ctrl key)
             self._root.bind("<Control-d>", lambda e: self._toggle_favorite())
             self._root.bind("<Control-e>", lambda e: self._toggle_read_status())
-            self._root.bind("<Control-r>", lambda e: self._open_random())
-            self._root.bind("<Control-Shift-f>", lambda e: self._open_random_favorite())  # Changed to avoid conflict with search
-            self._root.bind("<Control-u>", lambda e: self._open_random_unread())
             self._root.bind("<Control-l>", lambda e: self._focus_table())
         
         # Platform-independent shortcuts
@@ -310,30 +301,6 @@ class LinkController:
         if indices:
             self._save_focus_state("toggle")
             self._link_service.toggle_read_status(indices)
-    
-    def _open_random(self) -> None:
-        """Open a random link and select it in the UI."""
-        link_index = self._link_service.open_random_link()
-        if link_index is not None:
-            self._link_list_view.select_and_scroll_to(link_index)
-        else:
-            messagebox.showinfo("Info", "No links available.")
-    
-    def _open_random_favorite(self) -> None:
-        """Open a random favorite link and select it in the UI."""
-        link_index = self._link_service.open_random_favorite_link()
-        if link_index is not None:
-            self._link_list_view.select_and_scroll_to(link_index)
-        else:
-            messagebox.showinfo("Info", "No favorite links available.")
-    
-    def _open_random_unread(self) -> None:
-        """Open a random unread link and select it in the UI."""
-        link_index = self._link_service.open_random_unread_link()
-        if link_index is not None:
-            self._link_list_view.select_and_scroll_to(link_index)
-        else:
-            messagebox.showinfo("Info", "No unread links available.")
     
     def _focus_table(self) -> None:
         """Give focus to the link table."""

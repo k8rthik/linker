@@ -1,4 +1,3 @@
-import random
 from typing import List, Optional, Callable
 from models.link import Link
 from repositories.link_repository import LinkRepository
@@ -153,43 +152,6 @@ class LinkService:
                     link.mark_as_opened()
                     self._repository.update(link_id, link)
         self._notify_observers()
-    
-    def open_random_link(self) -> Optional[int]:
-        """Open a random link and return its index."""
-        links = self.get_all_links()
-        if not links:
-            return None
-        
-        choice = random.choice(links)
-        link_id = links.index(choice)
-        success = self.open_link(link_id)
-        return link_id if success else None
-    
-    def open_random_unread_link(self) -> Optional[int]:
-        """Open a random unread link and return its index."""
-        links = self.get_all_links()
-        unread_links = [link for link in links if link.is_unread()]
-        
-        if not unread_links:
-            return None
-        
-        choice = random.choice(unread_links)
-        link_id = links.index(choice)
-        success = self.open_link(link_id)
-        return link_id if success else None
-    
-    def open_random_favorite_link(self) -> Optional[int]:
-        """Open a random favorite link and return its index."""
-        links = self.get_all_links()
-        favorite_links = [link for link in links if link.favorite]
-        
-        if not favorite_links:
-            return None
-        
-        choice = random.choice(favorite_links)
-        link_id = links.index(choice)
-        success = self.open_link(link_id)
-        return link_id if success else None
     
     def search_links(self, search_term: str) -> List[Link]:
         """Search links by name and URL."""
