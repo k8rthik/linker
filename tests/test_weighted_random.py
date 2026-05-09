@@ -97,38 +97,87 @@ def test_independent_draws_produce_varied_output():
     assert max(counts.values()) < 100, "one index dominated unexpectedly"
 
 
-def test_unopened_favorites_are_picked_more_often():
-    """With default exponent=1, count=0 should beat count=2 across many trials."""
-    links = _make_links([0, 0, 0, 2, 2, 2])
-    indices = list(range(len(links)))
+def test_unopened_link_sits_at_baseline_one_over_n():
+    """An unopened link in a mixed pool should land at probability ≈ 1/n.
 
-    random.seed(3)
-    counts = Counter(weighted_choice(indices, links) for _ in range(10_000))
+    With links [0, 1, 5] (one unopened, two opened), the unopened index must
+    end up near 1/3 — not dominate as it did before the decoupling fix.
+    """
+    links = _make_links([0, 1, 5])
+    indices = [0, 1, 2]
+    trials = 30_000
 
-    unopened = sum(counts[i] for i in (0, 1, 2))
-    opened = sum(counts[i] for i in (3, 4, 5))
-    assert unopened > opened * 2, f"unopened={unopened}, opened={opened}"
+    random.seed(5)
+    counts = Counter(
+        weighted_choice(indices, links, exponent=3.0) for _ in range(trials)
+    )
+
+    unopened_share = counts[0] / trials
+    assert 0.30 < unopened_share < 0.37, (
+        f"unopened share {unopened_share} should be near baseline 1/3"
+    )
 
 
-def test_higher_exponent_strengthens_bias_toward_unopened():
-    """exponent=3 should down-weight opened favorites much harder than exponent=1."""
-    links = _make_links([0, 1])
+def test_less_opened_links_outrank_more_opened_among_opened_pool():
+    """Among opened-only pools the inverse curve still applies — a 1-opened
+    link must beat a 5-opened link by a wide margin."""
+    links = _make_links([1, 5])
+    indices = [0, 1]
+    trials = 20_000
+
+    random.seed(7)
+    counts = Counter(
+        weighted_choice(indices, links, exponent=1.0) for _ in range(trials)
+    )
+
+    # weights: [1/2, 1/6] -> shares [0.75, 0.25]
+    light_share = counts[0] / trials
+    assert 0.70 < light_share < 0.80
+
+
+def test_higher_exponent_widens_spread_among_opened():
+    """Higher exponent should sharpen the down-weighting of more-opened links
+    *within the opened pool* (decoupling did not weaken this skew)."""
+    links = _make_links([1, 5])
     indices = [0, 1]
     trials = 20_000
 
     random.seed(11)
-    weak = Counter(weighted_choice(indices, links, exponent=1.0) for _ in range(trials))
+    weak = Counter(
+        weighted_choice(indices, links, exponent=1.0) for _ in range(trials)
+    )
     random.seed(11)
-    strong = Counter(weighted_choice(indices, links, exponent=3.0) for _ in range(trials))
+    strong = Counter(
+        weighted_choice(indices, links, exponent=3.0) for _ in range(trials)
+    )
 
-    weak_share_unopened = weak[0] / trials
-    strong_share_unopened = strong[0] / trials
+    # exp=1: weights [1/2, 1/6]   -> light share ≈ 0.75
+    # exp=3: weights [1/8, 1/216] -> light share ≈ 0.964
+    weak_light = weak[0] / trials
+    strong_light = strong[0] / trials
 
-    # exponent=1 -> theoretical 1.0 / (1.0 + 0.5) = 0.667
-    # exponent=3 -> theoretical 1.0 / (1.0 + 0.125) = 0.889
-    assert 0.62 < weak_share_unopened < 0.72
-    assert 0.85 < strong_share_unopened < 0.93
-    assert strong_share_unopened > weak_share_unopened + 0.1
+    assert 0.70 < weak_light < 0.80
+    assert strong_light > 0.93
+    assert strong_light > weak_light + 0.1
+
+
+def test_new_favorite_not_overprefered_against_singly_opened():
+    """Regression: at exponent=3 a brand-new favorite used to win 89% of draws
+    against a once-opened favorite. Decoupling pins the new one at the mean
+    weight of opened links — with one opened peer, that's a 50/50 split."""
+    links = _make_links([0, 1])
+    indices = [0, 1]
+    trials = 20_000
+
+    random.seed(17)
+    counts = Counter(
+        weighted_choice(indices, links, exponent=3.0) for _ in range(trials)
+    )
+
+    new_share = counts[0] / trials
+    assert 0.46 < new_share < 0.54, (
+        f"new favorite share {new_share} should be ≈ 0.5, not the old ~0.89"
+    )
 
 
 def test_zero_exponent_yields_uniform_distribution():

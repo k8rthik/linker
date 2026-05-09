@@ -11,11 +11,37 @@ def weighted_choice(
     links: List[Link],
     exponent: float = 1.0,
 ) -> int:
-    """Pick a random index from `indices`, weighted by inverse of open_count."""
+    """Pick a random index from `indices`, biased against frequently-opened links.
+
+    Opened links use an inverse-power curve on open_count: more opens → lower
+    weight, scaled by `exponent`.
+
+    Unopened links (open_count == 0) are *decoupled* from this curve and pinned
+    at the mean weight of opened links. Without this, the formula spikes at
+    zero and a brand-new favorite dominates every draw — especially under high
+    exponents (a freshly favorited link with exponent=3 was 8× more likely than
+    one opened a single time). Anchoring unopened at the baseline keeps "I just
+    added this" links at probability ≈ 1/n while still skewing among opened
+    links.
+
+    When every passed-in link is unopened, falls back to uniform random.
+    """
     if not indices:
         raise ValueError("indices must not be empty")
     if exponent < 0:
         raise ValueError("exponent must be non-negative")
 
-    weights = [1.0 / (links[i].open_count + 1) ** exponent for i in indices]
+    opened_indices = [i for i in indices if links[i].open_count > 0]
+    if not opened_indices:
+        return random.choice(indices)
+
+    def opened_weight(i: int) -> float:
+        return 1.0 / (links[i].open_count + 1) ** exponent
+
+    baseline = sum(opened_weight(i) for i in opened_indices) / len(opened_indices)
+
+    weights = [
+        baseline if links[i].open_count == 0 else opened_weight(i)
+        for i in indices
+    ]
     return random.choices(indices, weights=weights, k=1)[0]
