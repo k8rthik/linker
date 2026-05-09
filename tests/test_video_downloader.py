@@ -20,8 +20,39 @@ class TestYtDlpDownloaderAvailability:
 
     @pytest.mark.unit
     def test_is_available_false_when_binary_missing(self) -> None:
+        # Block both PATH lookup and fallback bin-dir lookup so the test is
+        # deterministic regardless of what's installed on the dev machine.
         downloader = YtDlpDownloader()
-        with patch("shutil.which", return_value=None):
+        with patch("shutil.which", return_value=None), patch(
+            "os.path.exists", return_value=False
+        ):
+            assert downloader.is_available() is False
+
+    @pytest.mark.unit
+    def test_is_available_falls_back_to_homebrew_when_path_missing(self) -> None:
+        """PyInstaller .app bundles launched from Finder don't inherit the user's
+        shell PATH, so shutil.which can't find Homebrew binaries. The resolver
+        must fall back to /opt/homebrew/bin and friends."""
+        downloader = YtDlpDownloader()
+
+        def fake_exists(path: str) -> bool:
+            return path == "/opt/homebrew/bin/yt-dlp"
+
+        def fake_access(path: str, mode: int) -> bool:
+            return path == "/opt/homebrew/bin/yt-dlp"
+
+        with patch("shutil.which", return_value=None), patch(
+            "os.path.exists", side_effect=fake_exists
+        ), patch("os.access", side_effect=fake_access):
+            assert downloader.is_available() is True
+
+    @pytest.mark.unit
+    def test_resolve_binary_uses_absolute_path_directly(self) -> None:
+        """If `binary` is already an absolute path, skip PATH lookup."""
+        downloader = YtDlpDownloader(binary="/custom/path/yt-dlp")
+        with patch("os.path.exists", return_value=True):
+            assert downloader.is_available() is True
+        with patch("os.path.exists", return_value=False):
             assert downloader.is_available() is False
 
 
