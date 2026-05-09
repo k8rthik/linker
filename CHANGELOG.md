@@ -7,14 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-09
+
 ### Added
-- Copy links to clipboard:
+- **Offline video cache** for favorited links:
+  - Background `yt-dlp` worker auto-downloads videos when a link is favorited
+  - Startup backfill enqueues any favorited link that isn't already cached
+  - Cache markers and right-click cache actions in the link list
+  - Cache management dialog with on-disk size readout, live queue/activity log, and clear-all
+  - Opens route to the local cached file when available; cached videos open in QuickTime
+- **fyptt.to resolver** that walks the article → iframe → stream chain so `yt-dlp` can download tokenized streams; supports the plain player, `fypttjwstr.php` (JWPlayer + direct mp4), and `fypttjwstrhls.php` (JWPlayer + HLS) variants
+- **Archived links** ("soft delete"):
+  - Tools menu entry opens an Archived Links dialog with search, restore, and permanent delete
+  - Service-layer API for soft-delete, restore, and hard-delete flows
+- **Copy links to clipboard**:
   - `c` copies selected URL(s), one per line
   - `C` (Shift+c) copies selected as `Name - URL`
   - `y` copies selected as Markdown links `[Name](URL)`
   - `Cmd/Ctrl+C` and `Cmd/Ctrl+Shift+C` mirror the above on the link list
-  - New **Edit** menu and **Copy URLs** button
-  - Right-click context menu now offers copy actions, including "Copy all URLs in view"
+  - New **Edit** menu, **Copy URLs** button, and right-click "Copy all URLs in view"
+- **Background web scraper** with pause/resume, progress bar, and an approval dialog for force-refresh title fetches
+- Comprehensive analytics infrastructure with enhanced link metadata tracking
+- Help menu with keyboard shortcuts overview
+
+### Changed
+- Random-link selection uses a `weighted_choice` helper with a stronger favorite bias and a baseline weight floor for unopened links
+- UI theme tokens extracted into `ui/theme.py`
+- Build versioning is now derived from `git describe`; app bundle name includes the version
+
+### Fixed
+- HLS-sourced video downloads are remuxed into a real ISO MP4 container instead of being left as MPEG-TS with an `.mp4` extension, so QuickTime can play them
+- Resolve `yt-dlp` via Homebrew fallback paths when the `.app` bundle is launched from Finder (sanitized PATH)
+- Restore page-title autofetch by dropping the dead `auto_named` field
+- Preserve list selection across refresh and unblock startup paint
+- Default approval dialog checkboxes to deselected
+- Repaired pre-existing repository and search-index test failures
+- Scraper robots.txt handling and pause behavior; broader URL filtering to skip non-content pages
+
+### Removed
+- Dead legacy `LinkController` / `LinkService` / `LinkRepository` layer (superseded by the profile-based architecture)
+
+### Technical Improvements
+- Extracted utilities: `utils/date_parser`, `utils/url_parser`, `utils/title_fetcher`, `utils/fyptt_resolver`, `utils/video_downloader`
+- Disambiguated `AnalyticsService` method names from `ProfileService`
+- Concurrent title fetching with a streaming approval dialog
+- Fixed UI freezes caused by background tasks triggering constant refreshes
 
 ## [0.3.1] - 2025-11-10
 

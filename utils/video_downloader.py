@@ -122,6 +122,11 @@ class YtDlpDownloader:
             # time on multi-MB videos without saturating typical home links.
             "-N",
             "4",
+            # Force ISO MP4 container. fyptt's HLS variant lands as MPEG-TS,
+            # which yt-dlp would otherwise leave as `.mp4`-named TS — playable
+            # by ffmpeg but not by QuickTime.
+            "--remux-video",
+            "mp4",
             "-o",
             output_template,
             "--print",
