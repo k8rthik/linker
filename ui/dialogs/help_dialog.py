@@ -80,6 +80,9 @@ class HelpDialog:
             ("l", "Focus link list"),
             ("/", "Focus search bar"),
             ("?", "Show this help dialog"),
+            ("c", "Copy selected URL(s) to clipboard"),
+            ("C (Shift+c)", "Copy selected as 'Name - URL' to clipboard"),
+            ("y", "Copy selected as Markdown links to clipboard"),
             ("S (Shift+s)", "Toggle scraper pause/resume"),
             ("R (Shift+r)", "Force refresh auto-named titles"),
         ]
@@ -118,6 +121,8 @@ class HelpDialog:
             ("Tab", "Navigate between widgets"),
             ("Arrow Keys", "Navigate up/down in link list"),
             ("Escape", "Clear numeric buffer / Clear search / Clear selection"),
+            ("Cmd/Ctrl+C", "Copy selected URL(s) to clipboard"),
+            ("Cmd/Ctrl+Shift+C", "Copy selected as 'Name - URL'"),
         ]
 
         for key, description in platform_shortcuts:
@@ -142,6 +147,11 @@ class HelpDialog:
         menu_frame.pack(fill=tk.X, padx=10, pady=10)
 
         menu_items = [
+            ("Edit → Copy URL(s)", "Copy selected link URL(s) to clipboard"),
+            ("Edit → Copy as Name + URL", "Copy selection as 'Name - URL' lines"),
+            ("Edit → Copy as Markdown", "Copy selection as [Name](URL) lines"),
+            ("Edit → Copy All URLs in View", "Copy every URL in the current filtered view"),
+            ("Right-click a link", "Context menu with copy and cache actions"),
             ("Tools → View Archived Links", "Browse, restore, or permanently delete soft-deleted links"),
             ("Tools → Find & Merge Duplicates", "Detect and merge duplicate URLs"),
             ("Tools → Scan Titles", "Fetch web titles for links with URL-based names"),
@@ -204,6 +214,7 @@ class HelpDialog:
             "• Import/export functionality\n"
             "• Soft delete with archive (view & restore deleted links)\n"
             "• Undo delete (last 20 operations)\n"
+            "• Copy links to clipboard (URL, Name + URL, or Markdown)\n"
         )
 
         desc_label = tk.Label(about_frame, text=description,

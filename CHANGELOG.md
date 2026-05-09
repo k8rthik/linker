@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Copy links to clipboard:
+  - `c` copies selected URL(s), one per line
+  - `C` (Shift+c) copies selected as `Name - URL`
+  - `y` copies selected as Markdown links `[Name](URL)`
+  - `Cmd/Ctrl+C` and `Cmd/Ctrl+Shift+C` mirror the above on the link list
+  - New **Edit** menu and **Copy URLs** button
+  - Right-click context menu now offers copy actions, including "Copy all URLs in view"
+
 ## [0.3.1] - 2025-11-10
 
 ### Fixed

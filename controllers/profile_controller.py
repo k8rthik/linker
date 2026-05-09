@@ -144,6 +144,7 @@ class ProfileController:
         right_frame = tk.Frame(btn_frame)
         right_frame.pack(side=tk.RIGHT)
         
+        tk.Button(right_frame, text="Copy URLs", command=self._copy_selected_urls).pack(side=tk.LEFT, padx=5)
         tk.Button(right_frame, text="Import Links", command=self._import_links).pack(side=tk.LEFT, padx=5)
         tk.Button(right_frame, text="Export Links", command=self._export_links).pack(side=tk.LEFT)
 
@@ -151,6 +152,15 @@ class ProfileController:
         """Create the menu bar."""
         menubar = tk.Menu(self._root)
         self._root.config(menu=menubar)
+
+        # Edit menu (copy actions for getting links out of the program)
+        edit_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Edit", menu=edit_menu)
+        edit_menu.add_command(label="Copy URL(s)", accelerator="c", command=self._copy_selected_urls)
+        edit_menu.add_command(label="Copy as Name + URL", accelerator="C", command=self._copy_selected_formatted)
+        edit_menu.add_command(label="Copy as Markdown", accelerator="y", command=self._copy_selected_markdown)
+        edit_menu.add_separator()
+        edit_menu.add_command(label="Copy All URLs in View", command=self._copy_all_filtered_urls)
 
         # Tags menu
         tags_menu = tk.Menu(menubar, tearoff=0)
@@ -234,10 +244,22 @@ class ProfileController:
         self._root.bind("S", self._on_vim_key("S", self._toggle_scraper_pause))
         self._root.bind("T", self._on_vim_key("T", self._bulk_add_tags))  # Shift+T for bulk add tags
         self._root.bind("R", self._on_vim_key("R", self._force_refresh_titles))  # Shift+R for force refresh titles
+        self._root.bind("c", self._on_vim_key("c", self._copy_selected_urls))
+        self._root.bind("C", self._on_vim_key("C", self._copy_selected_formatted))
+        self._root.bind("y", self._on_vim_key("y", self._copy_selected_markdown))
 
         # Platform-independent shortcuts
         self._root.bind("<Return>", lambda e: self._edit_link())
         self._root.bind("<Tab>", self._on_tab_pressed)
+
+        # Standard Cmd+C / Ctrl+C copies the URL(s) of the current selection.
+        # Bound on the link list specifically so it doesn't steal copy from text widgets.
+        if self._link_list_view is not None:
+            tree = self._link_list_view._tree
+            tree.bind("<Command-c>", lambda e: (self._copy_selected_urls(), "break")[1])
+            tree.bind("<Control-c>", lambda e: (self._copy_selected_urls(), "break")[1])
+            tree.bind("<Command-Shift-C>", lambda e: (self._copy_selected_formatted(), "break")[1])
+            tree.bind("<Control-Shift-C>", lambda e: (self._copy_selected_formatted(), "break")[1])
 
     def _on_vim_key(self, key: str, action):
         """
@@ -851,8 +873,8 @@ class ProfileController:
             pass
 
     def _on_link_right_click(self, event, indices: List[int]) -> None:
-        """Show a context menu for the right-clicked link, with cache actions."""
-        if self._cache_service is None or not indices:
+        """Show a context menu for the right-clicked link, with copy and cache actions."""
+        if not indices:
             return
 
         links = self._profile_service.get_links()
@@ -860,31 +882,57 @@ class ProfileController:
         if not (0 <= index < len(links)):
             return
         link = links[index]
-        profile = self._profile_service.get_current_profile()
-        if profile is None:
-            return
-        profile_name = profile.name
+        selection_count = len(self._get_selected_indices()) or 1
 
         menu = tk.Menu(self._root, tearoff=0)
-        status = link.cache_status
-        if status == CACHE_STATUS_CACHED:
+
+        # Copy actions are always available, even without the cache service.
+        copy_label_url = (
+            "Copy URL" if selection_count == 1 else f"Copy {selection_count} URLs"
+        )
+        copy_label_named = (
+            "Copy Name + URL"
+            if selection_count == 1
+            else f"Copy {selection_count} as Name + URL"
+        )
+        copy_label_markdown = (
+            "Copy as Markdown"
+            if selection_count == 1
+            else f"Copy {selection_count} as Markdown"
+        )
+        menu.add_command(label=copy_label_url, command=self._copy_selected_urls)
+        menu.add_command(label=copy_label_named, command=self._copy_selected_formatted)
+        menu.add_command(label=copy_label_markdown, command=self._copy_selected_markdown)
+        if self._current_filtered_links:
             menu.add_command(
-                label="Delete cached file",
-                command=lambda: self._cache_service.delete_cached(profile_name, link),
+                label=f"Copy all {len(self._current_filtered_links)} URLs in view",
+                command=self._copy_all_filtered_urls,
             )
-        elif status == CACHE_STATUS_FAILED:
-            menu.add_command(
-                label=f"Retry cache (last error: {self._truncate(link.cache_error)})",
-                command=lambda: self._cache_service.retry(profile_name, link),
-            )
-        elif status == CACHE_STATUS_NONE:
-            menu.add_command(
-                label="Cache for offline",
-                command=lambda: self._cache_service.enqueue(profile_name, link),
-            )
-        else:
-            # pending / downloading — nothing actionable yet
-            menu.add_command(label=f"Cache status: {status}", state=tk.DISABLED)
+
+        if self._cache_service is not None:
+            menu.add_separator()
+            profile = self._profile_service.get_current_profile()
+            profile_name = profile.name if profile else None
+            if profile_name is not None:
+                status = link.cache_status
+                if status == CACHE_STATUS_CACHED:
+                    menu.add_command(
+                        label="Delete cached file",
+                        command=lambda: self._cache_service.delete_cached(profile_name, link),
+                    )
+                elif status == CACHE_STATUS_FAILED:
+                    menu.add_command(
+                        label=f"Retry cache (last error: {self._truncate(link.cache_error)})",
+                        command=lambda: self._cache_service.retry(profile_name, link),
+                    )
+                elif status == CACHE_STATUS_NONE:
+                    menu.add_command(
+                        label="Cache for offline",
+                        command=lambda: self._cache_service.enqueue(profile_name, link),
+                    )
+                else:
+                    # pending / downloading — nothing actionable yet
+                    menu.add_command(label=f"Cache status: {status}", state=tk.DISABLED)
 
         try:
             menu.tk_popup(event.x_root, event.y_root)
@@ -1082,7 +1130,103 @@ class ProfileController:
         indices = self._get_selected_indices()
         if indices:
             self._profile_service.open_links(indices)
-    
+
+    def _copy_to_clipboard(self, text: str) -> None:
+        """Copy text to the system clipboard."""
+        try:
+            self._root.clipboard_clear()
+            self._root.clipboard_append(text)
+            # Force tk to flush clipboard so contents survive after the app exits
+            self._root.update_idletasks()
+        except tk.TclError:
+            pass
+
+    def _selected_links_in_view_order(self) -> List[Link]:
+        """Return selected links in their current visual (filtered) order.
+
+        Falls back to selection order if filtered list is unavailable.
+        """
+        indices = set(self._get_selected_indices())
+        if not indices:
+            return []
+        all_links = self._profile_service.get_links()
+        view = self._current_filtered_links or all_links
+        # Build by walking the filtered list (preserves displayed order),
+        # then append any selected links that aren't currently visible.
+        selected_links: List[Link] = []
+        seen: set = set()
+        for link in view:
+            for i in indices:
+                if 0 <= i < len(all_links) and all_links[i] is link and i not in seen:
+                    selected_links.append(link)
+                    seen.add(i)
+                    break
+        for i in indices:
+            if i in seen:
+                continue
+            if 0 <= i < len(all_links):
+                selected_links.append(all_links[i])
+                seen.add(i)
+        return selected_links
+
+    def _copy_selected_urls(self) -> None:
+        """Copy URLs of selected links to the clipboard, one per line."""
+        links = self._selected_links_in_view_order()
+        if not links:
+            return
+        payload = "\n".join(link.url for link in links)
+        self._copy_to_clipboard(payload)
+        self._flash_status(f"Copied {len(links)} URL(s) to clipboard")
+
+    def _copy_selected_formatted(self) -> None:
+        """Copy selected links as 'Name - URL' lines to the clipboard."""
+        links = self._selected_links_in_view_order()
+        if not links:
+            return
+        payload = "\n".join(f"{link.name} - {link.url}" for link in links)
+        self._copy_to_clipboard(payload)
+        self._flash_status(f"Copied {len(links)} link(s) with names to clipboard")
+
+    def _copy_selected_markdown(self) -> None:
+        """Copy selected links as Markdown links to the clipboard."""
+        links = self._selected_links_in_view_order()
+        if not links:
+            return
+        payload = "\n".join(f"[{link.name}]({link.url})" for link in links)
+        self._copy_to_clipboard(payload)
+        self._flash_status(f"Copied {len(links)} markdown link(s) to clipboard")
+
+    def _copy_all_filtered_urls(self) -> None:
+        """Copy URLs of every link in the current filtered view."""
+        links = list(self._current_filtered_links or [])
+        if not links:
+            return
+        payload = "\n".join(link.url for link in links)
+        self._copy_to_clipboard(payload)
+        self._flash_status(f"Copied {len(links)} URL(s) from current view")
+
+    def _flash_status(self, message: str, duration_ms: int = 1800) -> None:
+        """Briefly show a message in the numeric label area as a status hint."""
+        if self._numeric_label is None:
+            return
+        try:
+            self._numeric_label.config(text=message, fg="green")
+            self._root.after(duration_ms, lambda: self._reset_status_label())
+        except tk.TclError:
+            pass
+
+    def _reset_status_label(self) -> None:
+        """Restore the numeric buffer label to its default state."""
+        if self._numeric_label is None:
+            return
+        try:
+            self._numeric_label.config(
+                text=f"[{self._numeric_buffer}]" if self._numeric_buffer else "",
+                fg="blue",
+            )
+        except tk.TclError:
+            pass
+
     def _export_links(self) -> None:
         """Export all links from all profiles to a file."""
         try:
