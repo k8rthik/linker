@@ -87,7 +87,10 @@ class LinkManagerApp:
 
     def run(self) -> None:
         """Start the application."""
-        self._cache_service.enqueue_favorites_backfill()
+        # Defer the backfill so the window paints before we start scanning
+        # profiles and submitting cache jobs. 200ms is enough for the first
+        # mainloop tick to render the UI on slower machines.
+        self._root.after(200, self._cache_service.enqueue_favorites_backfill)
         self._root.mainloop()
 
 

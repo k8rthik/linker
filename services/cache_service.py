@@ -95,10 +95,14 @@ class CacheService:
         feature shipped, retry transient yt-dlp failures, and unstick links
         left in pending/downloading state by an interrupted session.
 
-        No-ops when the downloader is unavailable — refusing to mark every
-        favorite as failed avoids wiping useful prior cache_error context and
-        avoids spamming persistence at startup. Returns the number of links
-        enqueued.
+        Batches the per-link state mutations into one repository write per
+        profile (instead of one per link) and skips the on_status_change
+        callback during this phase — the worker thread will fire callbacks
+        as it processes jobs anyway, so per-link notifications here would
+        only generate redundant UI refreshes.
+
+        No-ops when the downloader is unavailable. Returns the number of
+        links enqueued.
         """
         if not self._downloader.is_available():
             logger.info(
@@ -108,10 +112,15 @@ class CacheService:
 
         count = 0
         for profile in self._repository.find_all():
+            profile_dirty = False
             for link in profile.all_links:
                 if link.favorite and not link.is_cached():
-                    self.enqueue(profile.name, link)
+                    link.mark_cache_pending()
+                    profile_dirty = True
+                    self._submit(_CacheJob(profile_name=profile.name, link=link))
                     count += 1
+            if profile_dirty:
+                self._repository.update(profile)
         return count
 
     def enqueue(self, profile_name: str, link: Link) -> None:

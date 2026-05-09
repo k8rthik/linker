@@ -257,11 +257,16 @@ class ProfileController:
 
     def _refresh_view(self) -> None:
         """Refresh the view with current data."""
+        # Capture selection before the tree rebuild wipes it. Background events
+        # (cache worker firing status callbacks) trigger frequent refreshes,
+        # and losing the user's selection on every tick is jarring.
+        prior_selection = self._link_list_view.get_selected_indices()
+
         # Update profile selector
         profiles = self._profile_service.get_all_profiles()
         current_profile = self._profile_service.get_current_profile()
         self._profile_selector.set_profiles(profiles, current_profile)
-        
+
         # Get links from current profile
         all_links = self._profile_service.get_links()
 
@@ -292,8 +297,10 @@ class ProfileController:
         
         # Update UI components
         self._link_list_view.set_links(all_links, filtered_links)
+        if prior_selection:
+            self._link_list_view.restore_selection(prior_selection)
         self._link_list_view.set_sort_column(self._current_sort_column, self._current_sort_reverse)
-        
+
         # Update result count
         self._search_bar.set_result_count(len(filtered_links), len(all_links))
     
