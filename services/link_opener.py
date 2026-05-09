@@ -4,14 +4,16 @@ The single decision point for online-vs-offline opening lives in
 ProfileService.open_links — this module just handles the "fire the system
 default app for this file" mechanics.
 
-On macOS, cached videos open via Launch Services (`open`) so the user's
-default video player handles the file. We then fire a best-effort AppleScript
-that zooms (fit-to-screen) the frontmost app's window via the Window > Zoom
-menu — the same action as option-clicking the green button. This avoids real
-full-screen, which on macOS creates a separate Space per window and breaks
-down for batch opens of 10+ links. The zoom is fire-and-forget: failures
-(missing menu item, accessibility permission denied, app already zoomed) do
-not affect open success.
+On macOS, cached videos are routed to QuickTime Player and entered into
+its native fullscreen presentation mode (`present`). Each fullscreened
+window gets its own macOS Space — that's the platform's behavior for real
+fullscreen and is intentional given how the user batch-opens links.
+
+QuickTime is forced (instead of going through Launch Services) so we can
+identify the just-opened document by its cache-hash filename and target
+fullscreen on *that* document — no race conditions when ten links open
+together. Failures on incompatible files are swallowed so we don't wedge
+the calling thread on a single bad file.
 """
 
 from __future__ import annotations
@@ -27,50 +29,40 @@ logger = logging.getLogger(__name__)
 PathLike = Union[str, Path]
 
 
-# Async zoom: walks the menu bar of whichever app received the file and clicks
-# Window > Zoom. The 0.5s delay covers the gap between Launch Services telling
-# the app to open and the app actually becoming frontmost with a window. Both
-# layers wrapped in `try` so a missing menu item fails silently.
-_ZOOM_FRONTMOST_SCRIPT = '''
-delay 0.5
-tell application "System Events"
-    try
-        set frontApp to name of first application process whose frontmost is true
-        tell process frontApp
-            try
-                click menu item "Zoom" of menu "Window" of menu bar 1
-            end try
-        end tell
-    end try
-end tell
+# Open the file in QuickTime, then present (fullscreen) the document
+# identified by its basename. Filenames in our cache dir are SHA-prefixed
+# hashes, so they're unique per cached video — referring to `document
+# theName` instead of `document 1` keeps each script targeting the right
+# window even when several osascript invocations are in flight at once.
+#
+# The 0.3s delay is the minimum needed for QuickTime to materialize the
+# document object before we reference it. Both inner blocks are wrapped
+# in `try` so that an incompatible file (or a transient glitch) fails
+# silently instead of raising and short-circuiting the rest of a batch.
+_QUICKTIME_OPEN_FULLSCREEN = '''
+on run argv
+    set thePath to item 1 of argv
+    set theName to do shell script "basename " & quoted form of thePath
+    tell application "QuickTime Player"
+        activate
+        open POSIX file thePath
+        delay 0.3
+        try
+            tell document theName
+                play
+                present
+            end tell
+        end try
+    end tell
+end run
 '''
 
 
-def _zoom_frontmost_window_async() -> None:
-    """Fire-and-forget zoom of whichever app just became frontmost.
-
-    Runs in a separate process so a script error or missing accessibility
-    permission has no effect on the open path.
-    """
-    try:
-        subprocess.Popen(
-            ["osascript", "-e", _ZOOM_FRONTMOST_SCRIPT],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except OSError as e:
-        logger.debug("zoom helper failed to spawn: %s", e)
-
-
 def open_local_file(path: PathLike) -> bool:
-    """Open a local file with the OS default application.
+    """Open a local file, fullscreening it on macOS via QuickTime.
 
-    On macOS, also fires an async zoom of the frontmost app window so videos
-    fill the screen without entering real full-screen (which would create a
-    Space per video). Other platforms get plain xdg-open / startfile.
-
-    Returns True on success, False if the file is missing or the OS reports
-    failure. Callers fall back to opening the URL on False.
+    Returns True on success, False if the file is missing or the OS
+    reports failure. Callers fall back to opening the URL on False.
     """
     p = Path(path)
     if not p.exists():
@@ -79,8 +71,14 @@ def open_local_file(path: PathLike) -> bool:
 
     try:
         if sys.platform == "darwin":
-            subprocess.run(["open", str(p)], check=True)
-            _zoom_frontmost_window_async()
+            # 15s timeout: AppleScript usually returns in well under a
+            # second. A longer hang means QuickTime is stuck; we'd rather
+            # fail and let the caller fall back than block the worker.
+            subprocess.run(
+                ["osascript", "-e", _QUICKTIME_OPEN_FULLSCREEN, str(p)],
+                check=True,
+                timeout=15,
+            )
         elif sys.platform.startswith("linux"):
             subprocess.run(["xdg-open", str(p)], check=True)
         elif sys.platform.startswith("win"):

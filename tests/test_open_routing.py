@@ -177,12 +177,13 @@ class TestOfflineFirstOpenRouting:
 
 class TestLinkOpenerHelper:
     @pytest.mark.unit
-    def test_open_local_file_uses_launch_services_then_async_zoom(
+    def test_open_local_file_uses_quicktime_present_for_fullscreen(
         self, tmp_path: Path
     ):
-        """Cached videos open via `open` (Launch Services -> user's default
-        video app), and zoom is fired separately via osascript+Popen so a
-        zoom failure can't break the open."""
+        """Cached videos open in QuickTime Player and enter fullscreen via
+        QT's native `present` command. Document is referenced by its
+        cache-hash basename so concurrent opens don't fight over which
+        window gets fullscreened."""
         from services.link_opener import open_local_file
 
         f = tmp_path / "v.mp4"
@@ -190,22 +191,18 @@ class TestLinkOpenerHelper:
 
         with patch("sys.platform", "darwin"), patch(
             "subprocess.run", return_value=MagicMock(returncode=0)
-        ) as run, patch("subprocess.Popen") as popen:
+        ) as run:
             assert open_local_file(f) is True
 
-        # Primary open uses the `open` CLI so Launch Services routes to the
-        # user's default video player (not forced into QuickTime).
         run.assert_called_once()
         cmd = run.call_args.args[0]
-        assert cmd[0] == "open"
-        assert cmd[1] == str(f)
-
-        # Zoom is async, separate process, and goes through the Window > Zoom
-        # menu (which is the fit-to-screen action, not real fullscreen).
-        popen.assert_called_once()
-        popen_cmd = popen.call_args.args[0]
-        assert popen_cmd[0] == "osascript"
-        assert 'menu item "Zoom"' in popen_cmd[2]
+        assert cmd[0] == "osascript"
+        # Script body is in argv index 2 (after osascript -e).
+        script = cmd[2]
+        assert "present" in script
+        assert "document theName" in script
+        # Path is passed as final argv to the AppleScript.
+        assert cmd[-1] == str(f)
 
     @pytest.mark.unit
     def test_open_local_file_returns_false_on_missing_file(self, tmp_path: Path):
