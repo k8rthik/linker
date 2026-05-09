@@ -131,6 +131,31 @@ class TestResolveFypttStreamUrl:
             )
 
     @pytest.mark.unit
+    def test_resolves_hls_variant_at_fypttjwstrhls(self) -> None:
+        """Some videos ship via fypttjwstrhls.php — the JWPlayer + HLS variant.
+        The resolver's iframe regex is permissive enough to catch any
+        fyptt*.php with a fileid= query param, and the source pattern handles
+        .m3u8 URLs identically to .mp4."""
+        article_html = (
+            '<iframe '
+            'src="https://fyptt.to/fypttjwstrhls.php?fileid=HLS999&#038;mainurl=22864%2Ffoo">'
+            '</iframe>'
+        )
+        iframe_html = (
+            '<script>jwplayer().setup({'
+            'file:"https://stream.fyptt.to/hls/HLS999.m3u8?token=t&expires=1"'
+            '});</script>'
+        )
+
+        with patch(
+            "requests.get",
+            side_effect=[_mock_response(article_html), _mock_response(iframe_html)],
+        ):
+            url = resolve_fyptt_stream_url("https://fyptt.to/22864/foo/")
+
+        assert url == "https://stream.fyptt.to/hls/HLS999.m3u8?token=t&expires=1"
+
+    @pytest.mark.unit
     def test_resolves_jwplayer_variant_with_file_attribute(self) -> None:
         """Longer videos use fypttjwstr.php iframe with file:"..." instead of
         a <source> tag. Resolver must handle both shapes."""
