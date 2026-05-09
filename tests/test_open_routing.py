@@ -177,7 +177,10 @@ class TestOfflineFirstOpenRouting:
 
 class TestLinkOpenerHelper:
     @pytest.mark.unit
-    def test_open_local_file_uses_macos_open(self, tmp_path: Path):
+    def test_open_local_file_uses_macos_osascript_and_zooms(self, tmp_path: Path):
+        """Cached videos open via osascript so QT can play and zoom the window
+        in one shot. Real fullscreen would create a Space per video, which
+        breaks down for batch opens of 10+ links."""
         from services.link_opener import open_local_file
 
         f = tmp_path / "v.mp4"
@@ -189,8 +192,10 @@ class TestLinkOpenerHelper:
             assert open_local_file(f) is True
         run.assert_called_once()
         cmd = run.call_args.args[0]
-        assert cmd[0] == "open"
-        assert cmd[1] == str(f)
+        assert cmd[0] == "osascript"
+        assert "set zoomed to true" in cmd[2]
+        # Path is the final argv (passed to AppleScript via `on run argv`).
+        assert cmd[-1] == str(f)
 
     @pytest.mark.unit
     def test_open_local_file_returns_false_on_missing_file(self, tmp_path: Path):
