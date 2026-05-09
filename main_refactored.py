@@ -87,6 +87,7 @@ class LinkManagerApp:
 
     def run(self) -> None:
         """Start the application."""
+        self._cache_service.enqueue_favorites_backfill()
         self._root.mainloop()
 
 

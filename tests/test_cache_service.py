@@ -281,3 +281,65 @@ class TestTotalSize:
         self, cache_service: CacheService
     ) -> None:
         assert cache_service.total_size_bytes() == 0
+
+
+class TestFavoritesBackfill:
+    @pytest.mark.unit
+    def test_backfill_enqueues_favorited_uncached_links(
+        self, cache_service: CacheService, repo, fake_downloader
+    ) -> None:
+        profile = repo.find_by_name("Default")
+        profile.links[0].favorite = True
+        profile.links[1].favorite = False
+        repo.update(profile)
+
+        count = cache_service.enqueue_favorites_backfill()
+
+        assert count == 1
+        assert profile.links[0].cache_status == CACHE_STATUS_CACHED
+        assert profile.links[1].cache_status == CACHE_STATUS_NONE
+
+    @pytest.mark.unit
+    def test_backfill_skips_already_cached_favorites(
+        self, cache_service: CacheService, repo, fake_downloader
+    ) -> None:
+        profile = repo.find_by_name("Default")
+        profile.links[0].favorite = True
+        cache_service.enqueue("Default", profile.links[0])
+        first_calls = len(fake_downloader.calls)
+
+        count = cache_service.enqueue_favorites_backfill()
+
+        assert count == 0
+        assert len(fake_downloader.calls) == first_calls
+
+    @pytest.mark.unit
+    def test_backfill_retries_failed_favorites(
+        self, cache_service: CacheService, repo, fake_downloader
+    ) -> None:
+        profile = repo.find_by_name("Default")
+        profile.links[0].favorite = True
+        fake_downloader.queue_failure("transient")
+        cache_service.enqueue("Default", profile.links[0])
+        assert profile.links[0].cache_status == CACHE_STATUS_FAILED
+
+        fake_downloader.queue_success()
+        count = cache_service.enqueue_favorites_backfill()
+
+        assert count == 1
+        assert profile.links[0].cache_status == CACHE_STATUS_CACHED
+
+    @pytest.mark.unit
+    def test_backfill_noops_when_downloader_unavailable(
+        self, cache_service: CacheService, repo, fake_downloader
+    ) -> None:
+        profile = repo.find_by_name("Default")
+        profile.links[0].favorite = True
+        repo.update(profile)
+        fake_downloader.set_available(False)
+
+        count = cache_service.enqueue_favorites_backfill()
+
+        assert count == 0
+        # State left untouched — no spurious "failed" markers
+        assert profile.links[0].cache_status == CACHE_STATUS_NONE

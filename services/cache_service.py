@@ -88,6 +88,32 @@ class CacheService:
         """Register or clear the status-change callback. Invoked from the worker thread."""
         self._on_status_change = callback
 
+    def enqueue_favorites_backfill(self) -> int:
+        """Enqueue every favorited link that isn't already cached.
+
+        Used at app startup to catch up favorites created before the cache
+        feature shipped, retry transient yt-dlp failures, and unstick links
+        left in pending/downloading state by an interrupted session.
+
+        No-ops when the downloader is unavailable — refusing to mark every
+        favorite as failed avoids wiping useful prior cache_error context and
+        avoids spamming persistence at startup. Returns the number of links
+        enqueued.
+        """
+        if not self._downloader.is_available():
+            logger.info(
+                "Skipping favorites backfill: downloader unavailable"
+            )
+            return 0
+
+        count = 0
+        for profile in self._repository.find_all():
+            for link in profile.all_links:
+                if link.favorite and not link.is_cached():
+                    self.enqueue(profile.name, link)
+                    count += 1
+        return count
+
     def enqueue(self, profile_name: str, link: Link) -> None:
         """Schedule a download. No-op if already cached. Marks failed immediately if downloader unavailable."""
         if link.is_cached():
