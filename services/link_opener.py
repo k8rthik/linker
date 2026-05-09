@@ -4,11 +4,14 @@ The single decision point for online-vs-offline opening lives in
 ProfileService.open_links — this module just handles the "fire the system
 default app for this file" mechanics.
 
-On macOS, cached videos open in QuickTime Player with the window *zoomed*
-(maximized to the screen) rather than entered into full-screen. Real
-full-screen creates a separate macOS Space per window, which is unusable when
-the user opens 10+ links at once. Zoom is the option+green-button behavior:
-fills the visible screen without leaving the current Space.
+On macOS, cached videos open via Launch Services (`open`) so the user's
+default video player handles the file. We then fire a best-effort AppleScript
+that zooms (fit-to-screen) the frontmost app's window via the Window > Zoom
+menu — the same action as option-clicking the green button. This avoids real
+full-screen, which on macOS creates a separate Space per window and breaks
+down for batch opens of 10+ links. The zoom is fire-and-forget: failures
+(missing menu item, accessibility permission denied, app already zoomed) do
+not affect open success.
 """
 
 from __future__ import annotations
@@ -24,34 +27,47 @@ logger = logging.getLogger(__name__)
 PathLike = Union[str, Path]
 
 
-# AppleScript embedded as a one-shot. The path is passed as argv to avoid
-# any string-escaping risk; AppleScript variable substitution handles paths
-# with quotes, spaces, and unicode safely. The 0.2s delay gives QuickTime
-# time to actually materialize the window before we ask to zoom it — without
-# it, `window 1` resolves to nothing on cold launches.
-_QUICKTIME_OPEN_ZOOMED = '''
-on run argv
-    set thePath to item 1 of argv
-    tell application "QuickTime Player"
-        activate
-        open POSIX file thePath
-        delay 0.3
-        try
-            tell document 1 to play
-        end try
-        try
-            tell window 1 to set zoomed to true
-        end try
-    end tell
-end run
+# Async zoom: walks the menu bar of whichever app received the file and clicks
+# Window > Zoom. The 0.5s delay covers the gap between Launch Services telling
+# the app to open and the app actually becoming frontmost with a window. Both
+# layers wrapped in `try` so a missing menu item fails silently.
+_ZOOM_FRONTMOST_SCRIPT = '''
+delay 0.5
+tell application "System Events"
+    try
+        set frontApp to name of first application process whose frontmost is true
+        tell process frontApp
+            try
+                click menu item "Zoom" of menu "Window" of menu bar 1
+            end try
+        end tell
+    end try
+end tell
 '''
+
+
+def _zoom_frontmost_window_async() -> None:
+    """Fire-and-forget zoom of whichever app just became frontmost.
+
+    Runs in a separate process so a script error or missing accessibility
+    permission has no effect on the open path.
+    """
+    try:
+        subprocess.Popen(
+            ["osascript", "-e", _ZOOM_FRONTMOST_SCRIPT],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as e:
+        logger.debug("zoom helper failed to spawn: %s", e)
 
 
 def open_local_file(path: PathLike) -> bool:
     """Open a local file with the OS default application.
 
-    On macOS, cached video files open in QuickTime Player and the window is
-    zoomed to fit the screen. Other platforms get plain xdg-open / startfile.
+    On macOS, also fires an async zoom of the frontmost app window so videos
+    fill the screen without entering real full-screen (which would create a
+    Space per video). Other platforms get plain xdg-open / startfile.
 
     Returns True on success, False if the file is missing or the OS reports
     failure. Callers fall back to opening the URL on False.
@@ -63,14 +79,8 @@ def open_local_file(path: PathLike) -> bool:
 
     try:
         if sys.platform == "darwin":
-            # 15s timeout: AppleScript is fast even under load, but if QT is
-            # frozen we'd rather fail and let the caller fall back to URL than
-            # wedge the calling thread indefinitely.
-            subprocess.run(
-                ["osascript", "-e", _QUICKTIME_OPEN_ZOOMED, str(p)],
-                check=True,
-                timeout=15,
-            )
+            subprocess.run(["open", str(p)], check=True)
+            _zoom_frontmost_window_async()
         elif sys.platform.startswith("linux"):
             subprocess.run(["xdg-open", str(p)], check=True)
         elif sys.platform.startswith("win"):
