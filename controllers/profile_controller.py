@@ -635,10 +635,13 @@ class ProfileController:
                         domain=link.domain,
                         notes=link.notes,
                         source=link.source,
-                        auto_named=True,
                         link_status=link.link_status,
                         last_checked=link.last_checked,
                         http_status_code=link.http_status_code,
+                        cache_status=link.cache_status,
+                        cached_path=link.cached_path,
+                        cache_size_bytes=link.cache_size_bytes,
+                        cache_error=link.cache_error,
                     )
                     batch_updates.append((i, updated_link))
                     break
@@ -679,14 +682,11 @@ class ProfileController:
                    if TitleFetcher.should_fetch_title(link.url, link.name))
 
         if count == 0:
-            auto_named_count = sum(1 for link in all_links if link.auto_named)
-            if auto_named_count > 0:
-                messagebox.showinfo("Scan Titles",
-                                  f"All links already have good titles!\n\n"
-                                  f"({auto_named_count} links were auto-named. "
-                                  f"Press Shift+R to force refresh them.)")
-            else:
-                messagebox.showinfo("Scan Titles", "All links already have good titles!")
+            messagebox.showinfo(
+                "Scan Titles",
+                "All links already have good titles!\n\n"
+                "(Press Shift+R to force-refresh titles for every link.)",
+            )
             return
 
         if messagebox.askyesno("Scan Titles",
