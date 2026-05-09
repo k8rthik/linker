@@ -92,6 +92,22 @@ class YtDlpDownloader:
                 f"{', '.join(_FALLBACK_BIN_DIRS)})"
             )
 
+        # Site-specific URL resolution: yt-dlp can't parse fyptt.to article
+        # pages, but it can pull the underlying tokenized .mp4 once we walk
+        # the embed chain ourselves. Hash the original article URL so the
+        # cache filename stays stable across re-resolutions.
+        from utils.fyptt_resolver import is_fyptt_url, resolve_fyptt_stream_url
+
+        download_url = url
+        if is_fyptt_url(url):
+            stream_url = resolve_fyptt_stream_url(url)
+            if stream_url is None:
+                return DownloadResult.failure(
+                    "fyptt: could not resolve direct stream URL "
+                    "(page format may have changed)"
+                )
+            download_url = stream_url
+
         dest_dir.mkdir(parents=True, exist_ok=True)
         url_hash = _stable_url_hash(url)
         output_template = str(dest_dir / f"{url_hash}.%(ext)s")
@@ -106,7 +122,7 @@ class YtDlpDownloader:
             "--print",
             "after_move:filepath",
             *self.extra_args,
-            url,
+            download_url,
         ]
 
         try:
