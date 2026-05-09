@@ -24,7 +24,13 @@ Features:
 
 from __version__ import __version__
 
+import logging
 import tkinter as tk
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+)
 
 from controllers.profile_controller import ProfileController
 from repositories.profile_repository import JsonProfileRepository
