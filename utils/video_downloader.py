@@ -117,6 +117,11 @@ class YtDlpDownloader:
             "--no-playlist",
             "--no-warnings",
             "--no-progress",
+            # Concurrent fragment download — fyptt streams accept range
+            # requests, and 4 parallel chunks routinely halve wall-clock
+            # time on multi-MB videos without saturating typical home links.
+            "-N",
+            "4",
             "-o",
             output_template,
             "--print",

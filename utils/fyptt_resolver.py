@@ -27,20 +27,29 @@ _USER_AGENT = (
 )
 _FYPTT_HOSTS = frozenset({"fyptt.to", "www.fyptt.to"})
 
-# Article page -> iframe URL pointing at fypttstr.php.
-# Match either src= or data-src-no-ap= (lazy-loading attribute) so we work
-# whether or not the iframe has been hydrated.
+# Article page -> iframe URL pointing at the streamer endpoint. Two known
+# variants: `fypttstr.php` (plain <video><source>) and `fypttjwstr.php`
+# (JWPlayer-based, used for longer videos). Match either `src=` or
+# `data-src-no-ap=` so we work regardless of lazy-loading state.
 _IFRAME_PATTERN = re.compile(
     r'(?:data-src-no-ap|src)=["\']'
-    r'(https://fyptt\.to/fypttstr\.php\?[^"\']+)'
+    r'(https://fyptt\.to/fyptt(?:jw)?str\.php\?[^"\']+)'
     r'["\']'
 )
 
-# Inside the iframe response, the actual stream URL.
-_SOURCE_PATTERN = re.compile(
-    r'<source\s+[^>]*src=["\']'
-    r'(https://stream\.fyptt\.to/[^"\']+)'
-    r'["\']'
+# Inside the iframe response, the actual stream URL appears as either
+# `<source src="...">` (plain player) or `file:"..."` (JWPlayer config).
+_SOURCE_PATTERNS = (
+    re.compile(
+        r'<source\s+[^>]*src=["\']'
+        r'(https://stream\.fyptt\.to/[^"\']+)'
+        r'["\']'
+    ),
+    re.compile(
+        r'file\s*:\s*["\']'
+        r'(https://stream\.fyptt\.to/[^"\']+)'
+        r'["\']'
+    ),
 )
 
 
@@ -97,11 +106,12 @@ def resolve_fyptt_stream_url(
         )
         return None
 
-    source_match = _SOURCE_PATTERN.search(iframe_resp.text)
-    if not source_match:
-        logger.warning(
-            "fyptt resolver: no <source> tag in iframe at %s", iframe_url
-        )
-        return None
+    for pattern in _SOURCE_PATTERNS:
+        match = pattern.search(iframe_resp.text)
+        if match:
+            return html.unescape(match.group(1))
 
-    return html.unescape(source_match.group(1))
+    logger.warning(
+        "fyptt resolver: no stream URL found in iframe at %s", iframe_url
+    )
+    return None

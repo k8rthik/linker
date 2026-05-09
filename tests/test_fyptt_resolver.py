@@ -30,6 +30,25 @@ _IFRAME_HTML = """
 </body></html>
 """
 
+# Variant used for longer videos: JWPlayer iframe at fypttjwstr.php with the
+# stream URL embedded as `file:"..."` rather than a <source> tag.
+_JW_ARTICLE_HTML = """
+<html><body>
+<iframe data-src-no-ap="https://fyptt.to/fypttjwstr.php?fileid=XYZ789&amp;mainurl=11362%2Ffoo"
+        src="https://fyptt.to/fypttjwstr.php?fileid=XYZ789&#038;mainurl=11362%2Ffoo">
+</iframe>
+</body></html>
+"""
+
+_JW_IFRAME_HTML = """
+<html><body><script>
+jwplayer("player").setup({
+  file:"https://stream.fyptt.to/XYZ789.mp4?token=jw&expires=9999999999",
+  width:"100%"
+});
+</script></body></html>
+"""
+
 
 class TestIsFypttUrl:
     @pytest.mark.unit
@@ -110,6 +129,20 @@ class TestResolveFypttStreamUrl:
             assert (
                 resolve_fyptt_stream_url("https://fyptt.to/22224/foo/") is None
             )
+
+    @pytest.mark.unit
+    def test_resolves_jwplayer_variant_with_file_attribute(self) -> None:
+        """Longer videos use fypttjwstr.php iframe with file:"..." instead of
+        a <source> tag. Resolver must handle both shapes."""
+        article_resp = _mock_response(_JW_ARTICLE_HTML)
+        iframe_resp = _mock_response(_JW_IFRAME_HTML)
+
+        with patch("requests.get", side_effect=[article_resp, iframe_resp]):
+            url = resolve_fyptt_stream_url("https://fyptt.to/11362/foo/")
+
+        assert url == (
+            "https://stream.fyptt.to/XYZ789.mp4?token=jw&expires=9999999999"
+        )
 
     @pytest.mark.unit
     def test_decodes_html_entities_in_iframe_url(self) -> None:
