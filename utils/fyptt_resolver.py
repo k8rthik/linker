@@ -27,13 +27,16 @@ _USER_AGENT = (
 )
 _FYPTT_HOSTS = frozenset({"fyptt.to", "www.fyptt.to"})
 
-# Article page -> iframe URL pointing at the streamer endpoint. Two known
-# variants: `fypttstr.php` (plain <video><source>) and `fypttjwstr.php`
-# (JWPlayer-based, used for longer videos). Match either `src=` or
+# Article page -> iframe URL pointing at the streamer endpoint. Several
+# known variants exist (`fypttstr.php` plain player, `fypttjwstr.php`
+# JWPlayer + direct mp4, `fypttjwstrhls.php` JWPlayer + HLS), and the
+# site has shipped new ones over time. Match any `fyptt[…].php` under
+# fyptt.to with a `fileid=` query — that's robust to new variants
+# without us having to enumerate suffixes. Match either `src=` or
 # `data-src-no-ap=` so we work regardless of lazy-loading state.
 _IFRAME_PATTERN = re.compile(
     r'(?:data-src-no-ap|src)=["\']'
-    r'(https://fyptt\.to/fyptt(?:jw)?str\.php\?[^"\']+)'
+    r'(https://fyptt\.to/fyptt[a-z]*\.php\?[^"\']*fileid=[^"\']+)'
     r'["\']'
 )
 
