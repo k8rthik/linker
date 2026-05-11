@@ -36,7 +36,7 @@ from models.link import (
     CACHE_STATUS_NONE,
 )
 from utils.title_fetcher import TitleFetcher
-from utils.weighted_random import weighted_choice
+from utils.weighted_random import weighted_choice, weighted_sample
 
 FAVORITE_BIAS_EXPONENT = 3.0
 
@@ -228,9 +228,9 @@ class ProfileController:
         # Vim-style single-key shortcuts (only when search bar not focused)
         self._root.bind("f", self._on_vim_key("f", lambda: self._execute_with_multiplier(self._toggle_favorite)))
         self._root.bind("r", self._on_vim_key("r", lambda: self._execute_with_multiplier(self._toggle_read_status)))
-        self._root.bind("o", self._on_vim_key("o", lambda: self._execute_with_multiplier(self._open_random)))
-        self._root.bind("O", self._on_vim_key("O", lambda: self._execute_with_multiplier(self._open_random_favorite)))
-        self._root.bind("u", self._on_vim_key("u", lambda: self._execute_with_multiplier(self._open_random_unread)))
+        self._root.bind("o", self._on_vim_key("o", lambda: self._execute_open_with_multiplier(self._open_random)))
+        self._root.bind("O", self._on_vim_key("O", lambda: self._execute_open_with_multiplier(self._open_random_favorite)))
+        self._root.bind("u", self._on_vim_key("u", lambda: self._execute_open_with_multiplier(self._open_random_unread)))
         self._root.bind("d", self._on_vim_key("d", self._delete_selected))
         self._root.bind("e", self._on_vim_key("e", self._edit_link))
         self._root.bind("a", self._on_vim_key("a", self._add_links))
@@ -525,6 +525,16 @@ class ProfileController:
 
         for _ in range(multiplier):
             func()
+
+    def _execute_open_with_multiplier(self, func) -> None:
+        """Run a random-open command once, passing the numeric buffer as a count.
+
+        Open commands sample without replacement so a multiplier like ``10O``
+        opens up to 10 distinct links rather than re-rolling the same one.
+        """
+        count = self._get_multiplier()
+        self._clear_numeric_buffer()
+        func(count)
 
     def _undo_delete(self) -> None:
         """Undo the last delete operation by unarchiving links."""
@@ -947,7 +957,8 @@ class ProfileController:
 
     def _toggle_favorite(self) -> None:
         """Toggle favorite status of selected links. Newly favorited links are
-        enqueued for offline cache when the cache service is available."""
+        enqueued for offline cache; unfavorited links have any pending download
+        cancelled and their on-disk cache removed."""
         indices = self._get_selected_indices()
         links = self._profile_service.get_links()
         profile = self._profile_service.get_current_profile()
@@ -958,13 +969,13 @@ class ProfileController:
                 continue
             link = links[index]
             self._profile_service.toggle_favorite(index)
-            # If toggle resulted in favorite=True, schedule offline cache
-            if (
-                link.favorite
-                and self._cache_service is not None
-                and profile_name is not None
-            ):
+            if self._cache_service is None or profile_name is None:
+                continue
+            if link.favorite:
                 self._cache_service.enqueue(profile_name, link)
+            else:
+                self._cache_service.cancel(link)
+                self._cache_service.delete_cached(profile_name, link)
     
     def _toggle_read_status(self) -> None:
         """Toggle read status of selected links."""
@@ -1042,22 +1053,24 @@ class ProfileController:
             on_filter_by_tag=self._search_bar.add_tag_filter
         )
 
-    def _open_random(self) -> None:
-        """Open a random link (weighted by open_count) and select it in the UI."""
+    def _open_random(self, count: int = 1) -> None:
+        """Open up to `count` random links (weighted by open_count) without repeats."""
         links = self._profile_service.get_links()
         if not links:
             messagebox.showinfo("Info", "No links available.")
             return
 
         indices = list(range(len(links)))
-        index = weighted_choice(indices, links)
+        chosen = weighted_sample(indices, links, k=count)
+        if not chosen:
+            return
 
         self._performing_targeted_selection = True
-        self._profile_service.open_links([index])
-        self._link_list_view.select_and_scroll_to(index)
+        self._profile_service.open_links(chosen)
+        self._link_list_view.select_and_scroll_to(chosen[-1])
 
-    def _open_random_unread(self) -> None:
-        """Open a random unread link and select it in the UI."""
+    def _open_random_unread(self, count: int = 1) -> None:
+        """Open up to `count` random unread links without repeats."""
         links = self._profile_service.get_links()
         unread_indices = [i for i, link in enumerate(links) if link.is_unread()]
 
@@ -1065,14 +1078,16 @@ class ProfileController:
             messagebox.showinfo("Info", "No unread links available.")
             return
 
-        index = weighted_choice(unread_indices, links)
+        chosen = weighted_sample(unread_indices, links, k=count)
+        if not chosen:
+            return
 
         self._performing_targeted_selection = True
-        self._profile_service.open_links([index])
-        self._link_list_view.select_and_scroll_to(index)
+        self._profile_service.open_links(chosen)
+        self._link_list_view.select_and_scroll_to(chosen[-1])
 
-    def _open_random_favorite(self) -> None:
-        """Open a random favorite link, biased toward unopened ones."""
+    def _open_random_favorite(self, count: int = 1) -> None:
+        """Open up to `count` random favorite links, biased toward unopened ones, without repeats."""
         links = self._profile_service.get_links()
         favorite_indices = [i for i, link in enumerate(links) if link.favorite]
 
@@ -1080,11 +1095,15 @@ class ProfileController:
             messagebox.showinfo("Info", "No favorite links available.")
             return
 
-        index = weighted_choice(favorite_indices, links, exponent=FAVORITE_BIAS_EXPONENT)
+        chosen = weighted_sample(
+            favorite_indices, links, k=count, exponent=FAVORITE_BIAS_EXPONENT
+        )
+        if not chosen:
+            return
 
         self._performing_targeted_selection = True
-        self._profile_service.open_links([index])
-        self._link_list_view.select_and_scroll_to(index)
+        self._profile_service.open_links(chosen)
+        self._link_list_view.select_and_scroll_to(chosen[-1])
     
     def _focus_table(self) -> None:
         """Give focus to the link table."""

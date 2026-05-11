@@ -45,3 +45,27 @@ def weighted_choice(
         for i in indices
     ]
     return random.choices(indices, weights=weights, k=1)[0]
+
+
+def weighted_sample(
+    indices: List[int],
+    links: List[Link],
+    k: int,
+    exponent: float = 1.0,
+) -> List[int]:
+    """Pick up to `k` unique indices via repeated weighted draws without replacement.
+
+    Uses the same biasing rules as `weighted_choice`. Returns fewer than `k`
+    items when the pool is smaller. Returns an empty list when `k <= 0` or
+    `indices` is empty.
+    """
+    if k <= 0 or not indices:
+        return []
+
+    pool = list(indices)
+    chosen: List[int] = []
+    while pool and len(chosen) < k:
+        pick = weighted_choice(pool, links, exponent=exponent)
+        chosen.append(pick)
+        pool.remove(pick)
+    return chosen

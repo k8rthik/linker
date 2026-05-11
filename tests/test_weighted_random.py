@@ -7,7 +7,7 @@ from typing import List
 import pytest
 
 from models.link import Link
-from utils.weighted_random import weighted_choice
+from utils.weighted_random import weighted_choice, weighted_sample
 
 
 def _make_links(open_counts: List[int], favorite: bool = True) -> List[Link]:
@@ -191,6 +191,40 @@ def test_zero_exponent_yields_uniform_distribution():
     for idx in indices:
         share = counts[idx] / 15_000
         assert 0.30 < share < 0.36, f"index {idx} share {share} not near 1/3"
+
+
+def test_weighted_sample_returns_unique_indices():
+    """Sampling must never repeat an index, no matter the bias."""
+    random.seed(0)
+    links = _make_links([0, 1, 2, 3, 5])
+    indices = list(range(len(links)))
+
+    chosen = weighted_sample(indices, links, k=len(indices), exponent=3.0)
+    assert sorted(chosen) == sorted(indices)
+    assert len(set(chosen)) == len(chosen)
+
+
+def test_weighted_sample_caps_at_pool_size():
+    """Asking for more than the pool returns the whole pool, no repeats."""
+    random.seed(0)
+    links = _make_links([0, 1])
+    chosen = weighted_sample([0, 1], links, k=10)
+    assert sorted(chosen) == [0, 1]
+
+
+def test_weighted_sample_zero_or_empty_returns_empty_list():
+    links = _make_links([0, 1, 2])
+    assert weighted_sample([0, 1, 2], links, k=0) == []
+    assert weighted_sample([], links, k=5) == []
+
+
+def test_weighted_sample_partial_draw_size_matches_k():
+    random.seed(123)
+    links = _make_links([0, 1, 2, 3, 5, 8])
+    chosen = weighted_sample(list(range(6)), links, k=3, exponent=2.0)
+    assert len(chosen) == 3
+    assert len(set(chosen)) == 3
+    assert all(0 <= i < 6 for i in chosen)
 
 
 def test_consecutive_calls_are_independent():

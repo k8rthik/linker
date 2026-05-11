@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-05-10
+
+### Fixed
+- Multiplied open commands (`10o`, `10O`, `10u`) now sample without replacement, so each invocation opens distinct links instead of re-rolling and reopening the same one
+- Unfavoriting a link now cancels any pending offline-cache download and removes the cached file from disk, keeping the cache aligned with the favorites set
+
 ## [0.5.0] - 2026-05-09
 
 ### Added
