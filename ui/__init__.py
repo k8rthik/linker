@@ -1,4 +1,4 @@
-from .components import LinkListView, SearchBar
+from .components import LinkViewer, SearchBar
 from .dialogs import EditLinkDialog, AddLinksDialog
 
-__all__ = ["LinkListView", "SearchBar", "EditLinkDialog", "AddLinksDialog"] 
+__all__ = ["LinkViewer", "SearchBar", "EditLinkDialog", "AddLinksDialog"]

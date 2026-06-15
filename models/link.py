@@ -49,7 +49,9 @@ class Link:
                  cache_status: str = CACHE_STATUS_NONE,
                  cached_path: Optional[str] = None,
                  cache_size_bytes: Optional[int] = None,
-                 cache_error: Optional[str] = None):
+                 cache_error: Optional[str] = None,
+                 # Weighted-random selection
+                 points: float = 0.0):
         self._validate_required_fields(name, url)
         self._name = name.strip()
         self._url = url.strip()
@@ -89,7 +91,12 @@ class Link:
             max(0, cache_size_bytes) if cache_size_bytes is not None else None
         )
         self._cache_error = cache_error
-    
+
+        # Selection points. 0.0 is a sentinel meaning "uninitialized" — the
+        # service layer assigns the real baseline when a profile is loaded or
+        # a link is added.
+        self._points = max(0.0, float(points))
+
     @property
     def name(self) -> str:
         return self._name
@@ -291,6 +298,14 @@ class Link:
         self._cache_size_bytes = max(0, value) if value is not None else None
 
     @property
+    def points(self) -> float:
+        return self._points
+
+    @points.setter
+    def points(self, value: float) -> None:
+        self._points = max(0.0, float(value))
+
+    @property
     def cache_error(self) -> Optional[str]:
         return self._cache_error
 
@@ -402,7 +417,9 @@ class Link:
             "cache_status": self._cache_status,
             "cached_path": self._cached_path,
             "cache_size_bytes": self._cache_size_bytes,
-            "cache_error": self._cache_error
+            "cache_error": self._cache_error,
+            # Weighted-random selection
+            "points": self._points
         }
 
     @classmethod
@@ -437,7 +454,9 @@ class Link:
             cache_status=data.get("cache_status", CACHE_STATUS_NONE),
             cached_path=data.get("cached_path"),
             cache_size_bytes=data.get("cache_size_bytes"),
-            cache_error=data.get("cache_error")
+            cache_error=data.get("cache_error"),
+            # Weighted-random selection
+            points=data.get("points", 0.0)
         )
     
     def get_formatted_url(self) -> str:

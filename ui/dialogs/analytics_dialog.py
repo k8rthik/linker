@@ -4,7 +4,7 @@ Dialog for displaying comprehensive link analytics and statistics.
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-from typing import List, Optional, Callable
+from typing import Dict, List, Optional, Callable
 from datetime import datetime
 import threading
 
@@ -12,7 +12,7 @@ from ui.theme import COLORS, FONTS
 
 from models.link import Link
 from models.profile import Profile
-from ui.components.link_viewer import LinkViewerComponent
+from ui.components.link_viewer import LinkViewer, MODE_ACTIVE
 
 
 class AnalyticsDialog:
@@ -334,18 +334,17 @@ class AnalyticsDialog:
                 command=self._update_top_links
             ).pack(side=tk.LEFT, padx=5)
 
-        # Link viewer
-        self._top_links_viewer = LinkViewerComponent(
+        # Unified LinkViewer with rank + score added on top of the canonical
+        # column set. Full action menu is wired so right-click on a link here
+        # opens, edits, archives, copies, etc. — same as the main window.
+        self._top_links_viewer = LinkViewer(
             parent,
-            show_columns=['rank', 'opens', 'score', 'name', 'favorite', 'last_opened']
+            extra_columns=["rank", "score"],
+            mode=MODE_ACTIVE,
         )
         self._top_links_viewer.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        self._wire_full_actions(self._top_links_viewer)
 
-        # Set callbacks
-        self._top_links_viewer.set_open_callback(self._open_link_and_save)
-        # Note: Edit callback not set - read-only in analytics
-
-        # Initial load
         self._update_top_links()
 
     def _update_top_links(self) -> None:
@@ -353,81 +352,130 @@ class AnalyticsDialog:
         sort_by = self._sort_by_var.get()
 
         if sort_by == "engagement":
-            # Sort by engagement score
-            scored_links = []
-            for link in self._profile.links:
-                score = self._analytics_service.calculate_engagement_score(link)
-                scored_links.append((link, score))
+            scored_links = [
+                (link, self._analytics_service.calculate_engagement_score(link))
+                for link in self._profile.links
+            ]
             scored_links.sort(key=lambda x: x[1], reverse=True)
             links = [link for link, _ in scored_links[:50]]
+            scores = {id(link): score for link, score in scored_links[:50]}
 
-            # Custom data getter that includes engagement score
-            def data_getter(link):
-                score = self._analytics_service.calculate_engagement_score(link)
-                rank = links.index(link) + 1
-                return (
-                    rank,
-                    link.open_count,
-                    f"{score:.0f}",
-                    link.name,
-                    "⭐" if link.favorite else "",
-                    self._format_date(link.last_opened) if link.last_opened else "Never"
-                )
+            def extra_data(link, idx):
+                score = scores.get(id(link), 0)
+                return {"rank": idx + 1, "score": f"{score:.0f}"}
 
         elif sort_by == "opens":
-            # Sort by open count
             links = self._analytics_service.get_most_opened_links(self._profile, limit=50)
 
-            def data_getter(link):
-                rank = links.index(link) + 1
-                return (
-                    rank,
-                    link.open_count,
-                    "-",  # No score for this view
-                    link.name,
-                    "⭐" if link.favorite else "",
-                    self._format_date(link.last_opened) if link.last_opened else "Never"
-                )
+            def extra_data(link, idx):
+                return {"rank": idx + 1, "score": "-"}
 
         elif sort_by == "last_opened":
-            # Sort by last opened
             links = [link for link in self._profile.links if link.last_opened]
             links.sort(key=lambda x: x.last_opened or "", reverse=True)
             links = links[:50]
 
-            def data_getter(link):
-                rank = links.index(link) + 1
-                return (
-                    rank,
-                    link.open_count,
-                    "-",
-                    link.name,
-                    "⭐" if link.favorite else "",
-                    self._format_date(link.last_opened) if link.last_opened else "Never"
-                )
+            def extra_data(link, idx):
+                return {"rank": idx + 1, "score": "-"}
 
         else:  # created
-            # Sort by created date
-            links = sorted(self._profile.links, key=lambda x: x.date_added or "", reverse=True)[:50]
+            links = sorted(
+                self._profile.links, key=lambda x: x.date_added or "", reverse=True
+            )[:50]
 
-            def data_getter(link):
-                rank = links.index(link) + 1
-                return (
-                    rank,
-                    link.open_count,
-                    "-",
-                    link.name,
-                    "⭐" if link.favorite else "",
-                    self._format_date(link.last_opened) if link.last_opened else "Never"
-                )
+            def extra_data(link, idx):
+                return {"rank": idx + 1, "score": "-"}
 
-        self._top_links_viewer.set_links(links, data_getter)
+        self._top_links_viewer.set_links(links, extra_data=extra_data)
 
     def _open_link_and_save(self, link: Link) -> None:
         """Open a link and save the updated profile."""
         self._browser_service.open_url(link.get_formatted_url())
         link.mark_as_opened()
         self._profile_service._save_current_profile()
+
+    # ---- Shared action wiring for every LinkViewer in this dialog ----
+    #
+    # Every analytics tab gets the full action menu (open, edit, toggle
+    # favorite, archive, copy URL/Name+URL/Markdown). The same controller-
+    # level operations would otherwise have to be duplicated per tab.
+
+    def _wire_full_actions(self, viewer: LinkViewer) -> None:
+        viewer.set_open_callback(lambda links: [self._open_link_and_save(link) for link in links])
+        viewer.set_edit_callback(self._edit_link)
+        viewer.set_toggle_favorite_callback(self._toggle_favorite_for)
+        viewer.set_toggle_read_callback(self._toggle_read_for)
+        viewer.set_archive_callback(self._archive_links)
+        viewer.set_copy_urls_callback(self._copy_urls)
+        viewer.set_copy_formatted_callback(self._copy_formatted)
+        viewer.set_copy_markdown_callback(self._copy_markdown)
+
+    def _edit_link(self, link: Link) -> None:
+        from ui.dialogs.edit_dialog import EditLinkDialog
+
+        all_links = self._profile.links
+        try:
+            idx = next(i for i, candidate in enumerate(all_links) if candidate is link)
+        except StopIteration:
+            return
+
+        def on_save(updated: Link) -> None:
+            self._profile_service.update_link(idx, updated)
+
+        EditLinkDialog(
+            self._dialog, link, on_save, get_all_tags=self._profile_service.get_all_tags
+        )
+
+    def _toggle_favorite_for(self, links: List[Link]) -> None:
+        all_links = self._profile_service.get_links()
+        id_to_idx = {id(link): i for i, link in enumerate(all_links)}
+        for link in links:
+            idx = id_to_idx.get(id(link))
+            if idx is not None:
+                self._profile_service.toggle_favorite(idx)
+
+    def _toggle_read_for(self, links: List[Link]) -> None:
+        all_links = self._profile_service.get_links()
+        id_to_idx = {id(link): i for i, link in enumerate(all_links)}
+        for link in links:
+            idx = id_to_idx.get(id(link))
+            if idx is None:
+                continue
+            if link.is_unread():
+                link.mark_as_opened()
+            else:
+                link.last_opened = None
+            self._profile_service.update_link(idx, link)
+
+    def _archive_links(self, links: List[Link]) -> None:
+        if not messagebox.askyesno(
+            "Confirm Archive",
+            f"Archive {len(links)} link(s)?",
+            parent=self._dialog,
+        ):
+            return
+        all_links = self._profile_service.get_links()
+        id_to_idx = {id(link): i for i, link in enumerate(all_links)}
+        indices = [id_to_idx[id(link)] for link in links if id(link) in id_to_idx]
+        if indices:
+            self._profile_service.delete_links(sorted(indices))
+
+    def _copy_payload(self, payload: str) -> None:
+        try:
+            self._dialog.clipboard_clear()
+            self._dialog.clipboard_append(payload)
+            self._dialog.update_idletasks()
+        except tk.TclError:
+            pass
+
+    def _copy_urls(self, links: List[Link]) -> None:
+        self._copy_payload("\n".join(link.url for link in links))
+
+    def _copy_formatted(self, links: List[Link]) -> None:
+        self._copy_payload("\n".join(f"{link.name} - {link.url}" for link in links))
+
+    def _copy_markdown(self, links: List[Link]) -> None:
+        self._copy_payload("\n".join(f"[{link.name}]({link.url})" for link in links))
 
     # Note: The old _create_engagement_tab and _create_most_opened_tab methods have been
     # replaced by the new unified _create_top_links_tab method which uses LinkViewerComponent
@@ -446,30 +494,21 @@ class AnalyticsDialog:
         info_label = tk.Label(parent, text="Links you might want to revisit:", font=("", 10))
         info_label.pack(anchor="w", padx=10, pady=10)
 
-        # Use LinkViewerComponent
-        self._recommendations_viewer = LinkViewerComponent(
+        self._recommendations_viewer = LinkViewer(
             parent,
-            show_columns=['reason', 'name', 'url', 'opens', 'favorite']
+            extra_columns=["reason"],
+            mode=MODE_ACTIVE,
         )
         self._recommendations_viewer.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        self._wire_full_actions(self._recommendations_viewer)
 
-        # Set callbacks
-        self._recommendations_viewer.set_open_callback(self._open_link_and_save)
-
-        # Prepare links and data getter
         links = [link for link, _ in recommendations]
-        reasons = {link: reason for link, reason in recommendations}
+        reasons = {id(link): reason for link, reason in recommendations}
 
-        def data_getter(link):
-            return (
-                reasons.get(link, ""),
-                link.name,
-                link.url,
-                link.open_count,
-                "⭐" if link.favorite else ""
-            )
+        def extra_data(link, idx):
+            return {"reason": reasons.get(id(link), "")}
 
-        self._recommendations_viewer.set_links(links, data_getter)
+        self._recommendations_viewer.set_links(links, extra_data=extra_data)
 
     # ===== TAB 7: PROFILE COMPARISON (NEW!) =====
 
@@ -608,44 +647,37 @@ class AnalyticsDialog:
         # Add label
         tk.Label(viewer_container, text="Problematic Links", font=("", 10, "bold")).pack(anchor="w", pady=(0, 5))
 
-        # Use LinkViewerComponent
-        self._health_viewer = LinkViewerComponent(
+        self._health_viewer = LinkViewer(
             viewer_container,
-            show_columns=['health_status', 'name', 'url', 'http_code', 'opens']
+            extra_columns=["health_status", "http_code"],
+            mode=MODE_ACTIVE,
         )
         self._health_viewer.pack(fill=tk.BOTH, expand=True)
+        self._wire_full_actions(self._health_viewer)
 
-        # Set callbacks
-        self._health_viewer.set_open_callback(self._open_link_and_save)
-
-        # Initial populate
         self._populate_health_viewer(broken_links, redirect_links)
 
-    def _populate_health_viewer(self, broken_links: List[Link], redirect_links: List[Link]) -> None:
+    def _populate_health_viewer(
+        self, broken_links: List[Link], redirect_links: List[Link]
+    ) -> None:
         """Populate the health viewer with problematic links."""
-        # Combine broken and redirect links
-        all_problematic = []
-        statuses = {}
+        all_problematic: List[Link] = []
+        statuses: Dict[int, str] = {}
 
         for link in broken_links:
             all_problematic.append(link)
-            statuses[link] = "Broken"
-
+            statuses[id(link)] = "Broken"
         for link in redirect_links:
             all_problematic.append(link)
-            statuses[link] = "Redirect"
+            statuses[id(link)] = "Redirect"
 
-        # Data getter for health viewer
-        def data_getter(link):
-            return (
-                statuses.get(link, "Unknown"),
-                link.name,
-                link.url,
-                link.http_status_code or "N/A",
-                link.open_count
-            )
+        def extra_data(link, idx):
+            return {
+                "health_status": statuses.get(id(link), "Unknown"),
+                "http_code": link.http_status_code or "N/A",
+            }
 
-        self._health_viewer.set_links(all_problematic, data_getter)
+        self._health_viewer.set_links(all_problematic, extra_data=extra_data)
 
     def _check_all_links_health(self) -> None:
         """Check health of all links in background."""

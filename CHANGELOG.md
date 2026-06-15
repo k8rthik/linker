@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-06-15
+
+### Added
+- **Open in browser** option that bypasses the offline cache, so a favorited/cached link can be opened online on demand:
+  - "Open in Browser" entry in the link list right-click menu (works on multi-selection)
+  - `b` keyboard shortcut opens the selected link(s) in the browser
+  - Default open, the `o`/`O`/`u` random-open keys, and double-click keep the cache-first behavior
+
+### Changed
+- **Weighted random selection now uses a conserved points pool** (`utils/points_pool`) instead of `open_count`:
+  - Each profile distributes a fixed pool of 100 points across its links; a link's selection probability is its share of the pool
+  - Opening a link applies an exponential point loss (steeper as a link falls below baseline) and redistributes it equally to the rest, so frequently-opened links are de-emphasized and the sum is conserved
+  - Adding, deleting, archiving, and restoring links re-settle the pool to preserve the invariant
+  - New **Points** column in the link list shows each link's current weight
+- Consolidated the link list into a single `link_viewer` component (removed the legacy `link_list_view`)
+
 ## [0.5.1] - 2026-05-10
 
 ### Fixed

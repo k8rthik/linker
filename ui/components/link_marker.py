@@ -1,7 +1,7 @@
 """Format the combined favorite/cache marker for a link row.
 
 Lives in its own tiny module so the formatter is unit-testable without pulling
-in Tkinter (the LinkListView that consumes it does require Tk).
+in Tkinter (the LinkViewer that consumes it does require Tk).
 """
 
 from __future__ import annotations

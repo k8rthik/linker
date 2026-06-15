@@ -71,6 +71,7 @@ class HelpDialog:
             ("o", "Open random link"),
             ("O (Shift+o)", "Open random favorite link"),
             ("u", "Open random unread link"),
+            ("b", "Open selected link(s) in browser (bypass cache)"),
             ("d", "Delete selected link(s)"),
             ("e", "Edit selected link"),
             ("a or n", "Add new links"),

@@ -174,13 +174,76 @@ class TestOfflineFirstOpenRouting:
 
         assert browser.opened_urls == ["https://example.com/cached"]
 
+    @pytest.mark.unit
+    def test_force_browser_opens_url_even_when_cached(
+        self, repo_with_links, tmp_path: Path
+    ):
+        """force_browser=True bypasses the cache and opens the URL directly."""
+        browser = _StubBrowser()
+        cache = _StubCacheService()
+        cached_file = tmp_path / "video.mp4"
+        cached_file.write_bytes(b"x")
+        profile = repo_with_links.find_by_name("Default")
+        cached_link = profile.links[0]
+        cache.set_cached(cached_link, cached_file)
+
+        service = ProfileService(repo_with_links, browser, cache_service=cache)
+
+        with patch("services.link_opener.open_local_file", return_value=True) as opener:
+            service.open_links([0], force_browser=True)
+
+        opener.assert_not_called()
+        assert browser.opened_urls == ["https://example.com/cached"]
+
+    @pytest.mark.unit
+    def test_force_browser_still_marks_as_opened(
+        self, repo_with_links, tmp_path: Path
+    ):
+        """Opening in the browser still advances open-count and last_opened."""
+        browser = _StubBrowser()
+        cache = _StubCacheService()
+        cached_file = tmp_path / "video.mp4"
+        cached_file.write_bytes(b"x")
+        profile = repo_with_links.find_by_name("Default")
+        link = profile.links[0]
+        cache.set_cached(link, cached_file)
+
+        service = ProfileService(repo_with_links, browser, cache_service=cache)
+
+        with patch("services.link_opener.open_local_file", return_value=True):
+            service.open_links([0], force_browser=True)
+
+        assert link.open_count == 1
+        assert link.last_opened is not None
+
 
 class TestLinkOpenerHelper:
     @pytest.mark.unit
-    def test_open_local_file_uses_macos_open(self, tmp_path: Path):
+    def test_open_local_file_routes_video_to_quicktime_with_looping(self, tmp_path: Path):
         from services.link_opener import open_local_file
 
         f = tmp_path / "v.mp4"
+        f.write_bytes(b"x")
+
+        with patch("sys.platform", "darwin"), patch(
+            "subprocess.run", return_value=MagicMock(returncode=0)
+        ) as run:
+            assert open_local_file(f) is True
+        run.assert_called_once()
+        cmd = run.call_args.args[0]
+        assert cmd[0] == "osascript"
+        # The AppleScript body is passed via -e and must enable looping.
+        assert "-e" in cmd
+        script = cmd[cmd.index("-e") + 1]
+        assert "QuickTime Player" in script
+        assert "set looping of theDoc to true" in script
+        assert cmd[-1] == str(f)
+
+    @pytest.mark.unit
+    def test_open_local_file_non_video_uses_macos_open(self, tmp_path: Path):
+        from services.link_opener import open_local_file
+
+        f = tmp_path / "notes.txt"
         f.write_bytes(b"x")
 
         with patch("sys.platform", "darwin"), patch(

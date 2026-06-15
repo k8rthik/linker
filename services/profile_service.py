@@ -8,6 +8,7 @@ from typing import List, Optional, Callable, Dict, Set
 from models.profile import Profile
 from models.link import Link
 from repositories.profile_repository import ProfileRepository
+from utils import points_pool
 from .browser_service import BrowserService
 
 
@@ -134,7 +135,79 @@ class ProfileService:
 
         # Load current profile
         self._load_current_profile()
+        self._ensure_pool_invariant()
         self._rebuild_search_index()
+
+    # --- Points-pool bookkeeping --------------------------------------------
+    #
+    # The pool's invariant (sum of non-archived link points equals 100) is
+    # maintained on every mutation that changes the active link set. The
+    # `_pool_*` helpers translate from "what just changed" into the right
+    # points_pool call and write the new points back onto the affected links.
+
+    def _pool_pool_links(self) -> List[Link]:
+        """Links currently participating in the points pool (non-archived)."""
+        if not self._current_profile:
+            return []
+        return self._current_profile.links
+
+    def _ensure_pool_invariant(self) -> None:
+        """Reset points to baseline whenever the on-disk state doesn't satisfy
+        the pool invariant. Triggered after load and after profile switches —
+        the very first run for a profile created before this feature falls
+        through here."""
+        links = self._pool_pool_links()
+        if not links:
+            return
+        current = [link.points for link in links]
+        if points_pool.invariant_holds(current):
+            return
+        fresh = points_pool.initialize(len(links))
+        self._write_pool_points(links, fresh)
+
+    def _pool_on_open(self, index: int) -> None:
+        """Apply one open at `index` (into the non-archived link list)."""
+        links = self._pool_pool_links()
+        if not (0 <= index < len(links)):
+            return
+        current = [link.points for link in links]
+        updated = points_pool.apply_open(current, index)
+        self._write_pool_points(links, updated)
+
+    def _pool_on_add(self, added_link: Link) -> None:
+        """Settle the pool after `added_link` was appended to the profile.
+        Archived adds are skipped — they don't enter the active pool."""
+        if added_link.is_archived():
+            return
+        links = self._pool_pool_links()
+        if added_link not in links:
+            return
+        # Build the pre-add pool from existing links' current points.
+        before = [link.points for link in links if link is not added_link]
+        after = points_pool.apply_add(before)
+        # `after` has one more entry than `before`; last is the new link's
+        # baseline. Map back onto links.
+        existing = [link for link in links if link is not added_link]
+        for link, value in zip(existing, after[:-1]):
+            link.points = value
+        added_link.points = after[-1]
+
+    def _pool_on_remove(self, removed_link: Link) -> None:
+        """Settle the pool after `removed_link` has been archived or
+        permanently deleted. Must be called *after* the removal so that
+        `profile.links` no longer contains the link."""
+        survivors = self._pool_pool_links()
+        if not survivors:
+            return
+        # Add the removed link back to the front of the synthetic pool, apply
+        # delete at index 0, then write the result onto the survivors.
+        with_removed = [removed_link.points] + [link.points for link in survivors]
+        updated = points_pool.apply_delete(with_removed, 0)
+        self._write_pool_points(survivors, updated)
+
+    def _write_pool_points(self, links: List[Link], values: List[float]) -> None:
+        for link, value in zip(links, values):
+            link.points = value
     
     def get_all_profiles(self) -> List[Profile]:
         """Get all available profiles."""
@@ -151,8 +224,9 @@ class ProfileService:
             # Save current profile state before switching
             if self._current_profile:
                 self._profile_repository.update(self._current_profile)
-            
+
             self._current_profile = profile
+            self._ensure_pool_invariant()
             self._notify_observers()
             return True
         return False
@@ -170,6 +244,7 @@ class ProfileService:
             # If this is the first profile or made default, switch to it
             if make_default or not self._current_profile:
                 self._current_profile = new_profile
+                self._ensure_pool_invariant()
                 self._notify_observers()
             
             return True
@@ -211,6 +286,7 @@ class ProfileService:
             # Switch to default profile
             default_profile = self._profile_repository.find_default_profile()
             self._current_profile = default_profile
+            self._ensure_pool_invariant()
             self._notify_observers()
         
         return success
@@ -246,6 +322,7 @@ class ProfileService:
         """Add a link to the current profile."""
         if self._current_profile:
             self._current_profile.add_link(link)
+            self._pool_on_add(link)
             self._save_current_profile()
             self._notify_observers()
 
@@ -254,12 +331,17 @@ class ProfileService:
         if self._current_profile and links:
             for link in links:
                 self._current_profile.add_link(link)
+                self._pool_on_add(link)
             self._save_current_profile()
             self._notify_observers()
-    
+
     def update_link(self, index: int, link: Link) -> bool:
-        """Update a link in the current profile."""
+        """Update a link in the current profile. Preserves the existing
+        link's points so the pool invariant is not disturbed by edits."""
         if self._current_profile:
+            existing = self._current_profile.links
+            if 0 <= index < len(existing):
+                link.points = existing[index].points
             success = self._current_profile.update_link(index, link)
             if success:
                 self._save_current_profile()
@@ -281,6 +363,9 @@ class ProfileService:
 
         all_succeeded = True
         for index, link in updates:
+            existing = self._current_profile.links
+            if 0 <= index < len(existing):
+                link.points = existing[index].points
             success = self._current_profile.update_link(index, link)
             if not success:
                 all_succeeded = False
@@ -296,9 +381,19 @@ class ProfileService:
         if not self._current_profile:
             return False
 
+        # Snapshot the links being archived (against the non-archived view)
+        # before any removal happens, so indices stay valid.
+        non_archived = self._current_profile.links
+        targets = [non_archived[i] for i in indices if 0 <= i < len(non_archived)]
+
         # Sort indices in descending order to avoid index shifting
         for index in sorted(indices, reverse=True):
             self._current_profile.remove_link(index)
+
+        # Each archive shrinks the active pool by one; settle the points one
+        # at a time so the redistribution is per-removal, not lumped.
+        for target in targets:
+            self._pool_on_remove(target)
 
         self._save_current_profile()
         self._notify_observers()
@@ -311,8 +406,13 @@ class ProfileService:
 
         deleted = 0
         for link in links:
+            was_active = not link.is_archived()
             if self._current_profile.permanently_delete_link(link):
                 deleted += 1
+                # Only links that were actively in the pool need redistribution;
+                # purging an already-archived link doesn't change the active set.
+                if was_active:
+                    self._pool_on_remove(link)
 
         if deleted > 0:
             self._save_current_profile()
@@ -329,6 +429,9 @@ class ProfileService:
         for link in links:
             if link.is_archived():
                 link.unarchive()
+                # Reentering the pool is structurally identical to a new add:
+                # the link gets baseline, existing links each contribute equally.
+                self._pool_on_add(link)
                 restored += 1
 
         if restored > 0:
@@ -348,11 +451,16 @@ class ProfileService:
                 return True
         return False
     
-    def open_links(self, indices: List[int]) -> None:
+    def open_links(self, indices: List[int], force_browser: bool = False) -> None:
         """Open multiple links. Cached links open via the local file player;
         uncached links open in the browser. This is the single decision point
         for online-vs-offline open behavior — every other open path delegates
-        here so the routing is consistent."""
+        here so the routing is consistent.
+
+        When force_browser is True the cache is bypassed and every link opens
+        in the browser, regardless of cache state. Opens still count toward
+        usage stats and the points pool either way.
+        """
         if not self._current_profile:
             return
 
@@ -360,17 +468,24 @@ class ProfileService:
         for index in indices:
             if 0 <= index < len(links):
                 link = links[index]
-                self._open_link(link)
+                self._open_link(link, force_browser=force_browser)
                 link.mark_as_opened()
+                # Apply the exponential point loss and redistribute equally
+                # to the rest of the active pool. The loss compounds across
+                # multi-link opens since `_pool_on_open` reads current state.
+                self._pool_on_open(index)
 
         self._save_current_profile()
         self._notify_observers()
 
-    def _open_link(self, link: Link) -> None:
-        """Route a single open: prefer the cached local file, fall back to URL."""
+    def _open_link(self, link: Link, force_browser: bool = False) -> None:
+        """Route a single open: prefer the cached local file, fall back to URL.
+
+        force_browser skips the cache entirely and opens the URL directly.
+        """
         from services.link_opener import open_local_file  # local import to keep tests patchable
 
-        if self._cache_service is not None:
+        if not force_browser and self._cache_service is not None:
             cached_path = self._cache_service.get_cached_path(link)
             if cached_path is not None and open_local_file(cached_path):
                 return

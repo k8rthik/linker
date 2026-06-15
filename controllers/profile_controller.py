@@ -11,7 +11,7 @@ from services.cache_service import CacheService
 from services.import_export_service import ImportExportService
 from services.analytics_service import AnalyticsService
 from services.deduplication_service import DeduplicationService
-from ui.components.link_list_view import LinkListView
+from ui.components.link_viewer import LinkViewer, MODE_ACTIVE
 from ui.components.search_bar import SearchBar
 from ui.components.profile_selector import ProfileSelector
 from ui.dialogs.edit_dialog import EditLinkDialog
@@ -37,8 +37,6 @@ from models.link import (
 )
 from utils.title_fetcher import TitleFetcher
 from utils.weighted_random import weighted_choice, weighted_sample
-
-FAVORITE_BIAS_EXPONENT = 3.0
 
 
 class ProfileController:
@@ -71,7 +69,7 @@ class ProfileController:
         # UI components
         self._profile_selector: Optional[ProfileSelector] = None
         self._search_bar: Optional[SearchBar] = None
-        self._link_list_view: Optional[LinkListView] = None
+        self._link_viewer: Optional[LinkViewer] = None
         self._scraper_status_dialog: Optional[ScraperStatusDialog] = None
         
         # Register as observer
@@ -81,7 +79,7 @@ class ProfileController:
         self._setup_callbacks()
         self._refresh_view()
         # Auto-select first item on initial load
-        self._link_list_view.focus(auto_select_first=True)
+        self._link_viewer.focus(auto_select_first=True)
 
         # Background scan for title updates (runs after UI is ready)
         self._root.after(1000, self._scan_and_update_titles)  # Wait 1 second after startup
@@ -106,10 +104,12 @@ class ProfileController:
         # Search bar
         self._search_bar = SearchBar(container)
         
-        # Link list view
+        # Link viewer (unified component used everywhere a list of links
+        # appears — main window, archived dialog, every analytics tab)
         list_container = tk.Frame(container)
         list_container.pack(fill=tk.BOTH, expand=True)
-        self._link_list_view = LinkListView(list_container)
+        self._link_viewer = LinkViewer(list_container, mode=MODE_ACTIVE)
+        self._link_viewer.pack(fill=tk.BOTH, expand=True)
         
         # Button frame
         self._create_button_frame()
@@ -202,12 +202,19 @@ class ProfileController:
         self._search_bar.set_open_all_callback(self._on_open_all_clicked)
         self._search_bar.set_filter_change_callback(self._on_filter_changed)
         
-        # Link list view callbacks
-        self._link_list_view.set_double_click_callback(self._on_links_double_clicked)
-        self._link_list_view.set_delete_key_callback(self._on_delete_key_pressed)
-        self._link_list_view.set_space_key_callback(self._open_selected)
-        self._link_list_view.set_sort_callback(self._on_sort_requested)
-        self._link_list_view.set_right_click_callback(self._on_link_right_click)
+        # Link viewer callbacks — full action set, since the user expects every
+        # operation to be available wherever a link is displayed.
+        self._link_viewer.set_open_callback(self._open_links)
+        self._link_viewer.set_open_in_browser_callback(self._open_links_in_browser)
+        self._link_viewer.set_edit_callback(self._edit_link_directly)
+        self._link_viewer.set_toggle_favorite_callback(self._toggle_favorite_for)
+        self._link_viewer.set_toggle_read_callback(self._toggle_read_for)
+        self._link_viewer.set_archive_callback(self._archive_links)
+        self._link_viewer.set_copy_urls_callback(self._copy_urls_for)
+        self._link_viewer.set_copy_formatted_callback(self._copy_formatted_for)
+        self._link_viewer.set_copy_markdown_callback(self._copy_markdown_for)
+        self._link_viewer.set_sort_callback(self._on_sort_requested)
+        self._link_viewer.set_extend_menu_callback(self._extend_link_menu)
 
         # Cache service: refresh the list when a download finishes (worker thread)
         if self._cache_service is not None:
@@ -216,7 +223,6 @@ class ProfileController:
     def _setup_keyboard_shortcuts(self) -> None:
         """Setup vim-style keyboard shortcuts."""
         self._search_bar.bind_keyboard_shortcuts(self._root)
-        self._link_list_view.bind_keyboard_shortcuts(self._root)
 
         # Escape key handling
         self._root.bind("<Escape>", self._on_escape_pressed)
@@ -231,6 +237,7 @@ class ProfileController:
         self._root.bind("o", self._on_vim_key("o", lambda: self._execute_open_with_multiplier(self._open_random)))
         self._root.bind("O", self._on_vim_key("O", lambda: self._execute_open_with_multiplier(self._open_random_favorite)))
         self._root.bind("u", self._on_vim_key("u", lambda: self._execute_open_with_multiplier(self._open_random_unread)))
+        self._root.bind("b", self._on_vim_key("b", self._open_selected_in_browser))
         self._root.bind("d", self._on_vim_key("d", self._delete_selected))
         self._root.bind("e", self._on_vim_key("e", self._edit_link))
         self._root.bind("a", self._on_vim_key("a", self._add_links))
@@ -252,12 +259,10 @@ class ProfileController:
         self._root.bind("<Return>", lambda e: self._edit_link())
         self._root.bind("<Tab>", self._on_tab_pressed)
 
-        # Standard Cmd+C / Ctrl+C copies the URL(s) of the current selection.
-        # Bound on the link list specifically so it doesn't steal copy from text widgets.
-        if self._link_list_view is not None:
-            tree = self._link_list_view._tree
-            tree.bind("<Command-c>", lambda e: (self._copy_selected_urls(), "break")[1])
-            tree.bind("<Control-c>", lambda e: (self._copy_selected_urls(), "break")[1])
+        # Cmd/Ctrl+Shift+C → "Copy as Name + URL"; bound on the tree so
+        # it doesn't steal Copy from text widgets elsewhere in the app.
+        if self._link_viewer is not None:
+            tree = self._link_viewer.tree
             tree.bind("<Command-Shift-C>", lambda e: (self._copy_selected_formatted(), "break")[1])
             tree.bind("<Control-Shift-C>", lambda e: (self._copy_selected_formatted(), "break")[1])
 
@@ -279,10 +284,11 @@ class ProfileController:
 
     def _refresh_view(self) -> None:
         """Refresh the view with current data."""
-        # Capture selection before the tree rebuild wipes it. Background events
-        # (cache worker firing status callbacks) trigger frequent refreshes,
-        # and losing the user's selection on every tick is jarring.
-        prior_selection = self._link_list_view.get_selected_indices()
+        # Capture selected Link identities before the tree rebuild wipes them.
+        # Identity (id()) survives the rebuild as long as the Link objects
+        # remain alive in the profile — losing selection on every cache-status
+        # callback would be jarring.
+        prior_selected_ids = {id(link) for link in self._link_viewer.get_selected_links()}
 
         # Update profile selector
         profiles = self._profile_service.get_all_profiles()
@@ -307,32 +313,62 @@ class ProfileController:
                     filtered_links = [link for link in filtered_links if link.has_tag(tag)]
         else:
             filtered_links = all_links
-        
+
         # Apply sorting
         if self._current_sort_column:
             filtered_links = self._profile_service.sort_links(
                 filtered_links, self._current_sort_column, self._current_sort_reverse
             )
-        
-        # Store current filtered links
+
+        # Store current filtered links (used by some controller methods)
         self._current_filtered_links = filtered_links
-        
-        # Update UI components
-        self._link_list_view.set_links(all_links, filtered_links)
-        if prior_selection:
-            self._link_list_view.restore_selection(prior_selection)
-        self._link_list_view.set_sort_column(self._current_sort_column, self._current_sort_reverse)
+
+        # Render
+        self._link_viewer.set_links(filtered_links)
+        if prior_selected_ids:
+            indices = [
+                idx for idx, link in enumerate(filtered_links)
+                if id(link) in prior_selected_ids
+            ]
+            if indices:
+                self._link_viewer.select_indices(indices)
+        self._link_viewer.set_sort_indicator(
+            self._current_sort_column, self._current_sort_reverse
+        )
 
         # Update result count
         self._search_bar.set_result_count(len(filtered_links), len(all_links))
-    
+
     def _get_selected_indices(self) -> List[int]:
-        """Get currently selected link indices."""
-        return self._link_list_view.get_selected_indices()
-    
+        """Selected indices into the *all_links* (profile) list.
+
+        The viewer renders the filtered slice, so we map back via identity.
+        """
+        all_links = self._profile_service.get_links()
+        selected_links = self._link_viewer.get_selected_links()
+        if not selected_links:
+            return []
+        id_to_index = {id(link): i for i, link in enumerate(all_links)}
+        return [id_to_index[id(link)] for link in selected_links if id(link) in id_to_index]
+
+    def _get_selected_links(self) -> List[Link]:
+        """Selected Link objects in display order."""
+        return self._link_viewer.get_selected_links()
+
     def _restore_selection(self, indices: List[int]) -> None:
-        """Restore selection to given indices."""
-        self._link_list_view.restore_selection(indices)
+        """Re-select links by profile-list indices (best-effort).
+
+        Maps from profile indices → current visible indices and asks the viewer
+        to select those rows.
+        """
+        all_links = self._profile_service.get_links()
+        wanted_ids = {id(all_links[i]) for i in indices if 0 <= i < len(all_links)}
+        if not wanted_ids:
+            return
+        visible_links = self._link_viewer._links  # current displayed slice
+        visible_indices = [i for i, link in enumerate(visible_links) if id(link) in wanted_ids]
+        if visible_indices:
+            self._link_viewer.select_indices(visible_indices)
     
     # Event handlers
     def _on_data_changed(self) -> None:
@@ -360,7 +396,7 @@ class ProfileController:
             self._search_bar.clear_search()
             self._refresh_view()
             # Auto-select first item when switching profiles
-            self._link_list_view.focus(auto_select_first=True)
+            self._link_viewer.focus(auto_select_first=True)
     
     def _on_manage_profiles(self) -> None:
         """Show the profile management dialog."""
@@ -402,62 +438,74 @@ class ProfileController:
         """Handle tag filter changes."""
         self._refresh_view()
     
-    def _on_links_double_clicked(self, indices: List[int]) -> None:
-        """Handle double-click on links."""
+    def _open_links(self, links: List[Link]) -> None:
+        """Open a list of Links (from the viewer)."""
+        if not links:
+            return
+        indices = self._indices_for(links)
         if indices:
             self._profile_service.open_links(indices)
-    
+
+    def _open_links_in_browser(self, links: List[Link]) -> None:
+        """Open a list of Links in the browser, bypassing the offline cache."""
+        if not links:
+            return
+        indices = self._indices_for(links)
+        if indices:
+            self._profile_service.open_links(indices, force_browser=True)
+
     def _delete_selected(self) -> None:
         """Delete currently selected links (wrapper for vim key binding)."""
-        indices = self._get_selected_indices()
-        if indices:
-            self._on_delete_key_pressed(indices)
+        self._archive_links(self._get_selected_links())
 
-    def _on_delete_key_pressed(self, indices: List[int]) -> None:
-        """Handle delete key press and save to undo stack."""
+    def _archive_links(self, links: List[Link]) -> None:
+        """Soft-delete (archive) a list of Links.
+
+        Asks for confirmation, stores the operation on the undo stack, then
+        delegates to the service. After archiving, focuses the row that fell
+        into the first deleted slot so the user keeps their place.
+        """
+        if not links:
+            return
+
+        n = len(links)
+        message = (
+            "Are you sure you want to delete this link?"
+            if n == 1
+            else f"Are you sure you want to delete {n} selected link(s)?"
+        )
+        if not messagebox.askyesno("Confirm Deletion", message):
+            return
+
+        visual_positions = self._link_viewer.get_visual_positions_of_selected()
+        first_visual_position = min(visual_positions) if visual_positions else 0
+
+        indices = self._indices_for(links)
         if not indices:
             return
+        sorted_indices = sorted(indices)
 
-        # Always show confirmation dialog
-        if len(indices) == 1:
-            confirmation_message = "Are you sure you want to delete this link?"
+        # Snapshot for undo (sorted_indices into the profile list at delete time)
+        self._undo_stack.append((sorted_indices, [links[i] for i in range(len(links))]))
+
+        self._profile_service.delete_links(sorted_indices)
+
+        # Smart refocus to the same visual slot
+        remaining = self._profile_service.get_links()
+        if remaining:
+            visible_count = len(self._link_viewer.tree.get_children())
+            if visible_count > 0:
+                self._link_viewer.select_by_visual_position(
+                    min(first_visual_position, visible_count - 1)
+                )
         else:
-            confirmation_message = f"Are you sure you want to delete {len(indices)} selected link(s)?"
+            self._link_viewer.clear_selection()
 
-        if not messagebox.askyesno("Confirm Deletion", confirmation_message):
-            return
-
-        # Get the visual position of the first selected item before deletion
-        visual_positions = self._link_list_view.get_visual_positions_of_selected()
-        if not visual_positions:
-            return
-
-        first_visual_position = min(visual_positions)
-
-        # Remember the links for undo
-        links = self._profile_service.get_links()
-        deleted_links = [links[i] for i in sorted(indices)]
-        self._undo_stack.append((sorted(indices), deleted_links))
-
-        # Delete the links
-        self._profile_service.delete_links(indices)
-
-        # Smart refocusing: select the item at the same visual position
-        # If we deleted the last item(s), select the new last item
-        remaining_links = self._profile_service.get_links()
-        if remaining_links:
-            # Get total number of visible items after deletion
-            # (accounting for any active search filter)
-            all_items = self._link_list_view._tree.get_children()
-            total_visible = len(all_items)
-
-            if total_visible > 0:
-                # Stay at the same visual position, or go to the last item if we deleted beyond the end
-                new_visual_position = min(first_visual_position, total_visible - 1)
-                self._link_list_view.select_by_visual_position(new_visual_position)
-        else:
-            # No links left, just clear selection
-            self._link_list_view.clear_selection()
+    def _indices_for(self, links: List[Link]) -> List[int]:
+        """Map a list of Link objects back to indices in the profile list."""
+        all_links = self._profile_service.get_links()
+        id_to_idx = {id(link): i for i, link in enumerate(all_links)}
+        return [id_to_idx[id(link)] for link in links if id(link) in id_to_idx]
     
     def _on_sort_requested(self, column: str, reverse: bool) -> None:
         """Handle sort request."""
@@ -475,15 +523,15 @@ class ProfileController:
         if self._search_bar.has_focus():
             # Search bar has focus - clear search
             self._search_bar.clear_search()
-        elif self._link_list_view.has_focus():
+        elif self._link_viewer.has_focus():
             # Tree view has focus - clear selection
-            self._link_list_view.clear_selection()
+            self._link_viewer.clear_selection()
         else:
             # Fallback: if search has text, clear it; otherwise clear selection
             if self._search_bar.get_search_term():
                 self._search_bar.clear_search()
             else:
-                self._link_list_view.clear_selection()
+                self._link_viewer.clear_selection()
 
     def _on_number_key_pressed(self, event) -> str:
         """Handle number key press for vim-style multiplier."""
@@ -854,25 +902,29 @@ class ProfileController:
             )
 
     def _edit_link(self) -> None:
-        """Show edit link dialog."""
-        indices = self._get_selected_indices()
-        if not indices:
+        """Show edit link dialog (vim binding)."""
+        selected = self._get_selected_links()
+        if not selected:
             return
-        if len(indices) > 1:
+        if len(selected) > 1:
             messagebox.showinfo("Info", "Please select only one item to edit.")
             return
-        
-        link_index = indices[0]
-        links = self._profile_service.get_links()
-        if link_index >= len(links):
+        self._edit_link_directly(selected[0])
+
+    def _edit_link_directly(self, link: Link) -> None:
+        """Open the edit dialog for a specific Link."""
+        all_links = self._profile_service.get_links()
+        try:
+            link_index = next(i for i, candidate in enumerate(all_links) if candidate is link)
+        except StopIteration:
             return
-        
-        link = links[link_index]
-        
+
         def on_save(updated_link: Link) -> None:
             self._profile_service.update_link(link_index, updated_link)
 
-        EditLinkDialog(self._root, link, on_save, get_all_tags=self._profile_service.get_all_tags)
+        EditLinkDialog(
+            self._root, link, on_save, get_all_tags=self._profile_service.get_all_tags
+        )
     
     def _on_cache_status_changed(self, profile_name: str, link: Link) -> None:
         """Cache worker thread fired a status transition. Marshal a refresh to the UI thread."""
@@ -882,72 +934,66 @@ class ProfileController:
             # Tk has been torn down — ignore.
             pass
 
-    def _on_link_right_click(self, event, indices: List[int]) -> None:
-        """Show a context menu for the right-clicked link, with copy and cache actions."""
-        if not indices:
-            return
-
-        links = self._profile_service.get_links()
-        index = indices[0]
-        if not (0 <= index < len(links)):
-            return
-        link = links[index]
-        selection_count = len(self._get_selected_indices()) or 1
-
-        menu = tk.Menu(self._root, tearoff=0)
-
-        # Copy actions are always available, even without the cache service.
-        copy_label_url = (
-            "Copy URL" if selection_count == 1 else f"Copy {selection_count} URLs"
-        )
-        copy_label_named = (
-            "Copy Name + URL"
-            if selection_count == 1
-            else f"Copy {selection_count} as Name + URL"
-        )
-        copy_label_markdown = (
-            "Copy as Markdown"
-            if selection_count == 1
-            else f"Copy {selection_count} as Markdown"
-        )
-        menu.add_command(label=copy_label_url, command=self._copy_selected_urls)
-        menu.add_command(label=copy_label_named, command=self._copy_selected_formatted)
-        menu.add_command(label=copy_label_markdown, command=self._copy_selected_markdown)
+    def _extend_link_menu(self, links: List[Link], menu: tk.Menu) -> None:
+        """Append controller-specific entries (Copy-all-in-view + cache actions)
+        to the LinkViewer's right-click menu."""
         if self._current_filtered_links:
+            menu.add_separator()
             menu.add_command(
                 label=f"Copy all {len(self._current_filtered_links)} URLs in view",
                 command=self._copy_all_filtered_urls,
             )
 
-        if self._cache_service is not None:
-            menu.add_separator()
-            profile = self._profile_service.get_current_profile()
-            profile_name = profile.name if profile else None
-            if profile_name is not None:
-                status = link.cache_status
-                if status == CACHE_STATUS_CACHED:
-                    menu.add_command(
-                        label="Delete cached file",
-                        command=lambda: self._cache_service.delete_cached(profile_name, link),
-                    )
-                elif status == CACHE_STATUS_FAILED:
-                    menu.add_command(
-                        label=f"Retry cache (last error: {self._truncate(link.cache_error)})",
-                        command=lambda: self._cache_service.retry(profile_name, link),
-                    )
-                elif status == CACHE_STATUS_NONE:
-                    menu.add_command(
-                        label="Cache for offline",
-                        command=lambda: self._cache_service.enqueue(profile_name, link),
-                    )
-                else:
-                    # pending / downloading — nothing actionable yet
-                    menu.add_command(label=f"Cache status: {status}", state=tk.DISABLED)
+        if self._cache_service is None or not links:
+            return
+        # Cache actions act on the primary (first) selected link
+        link = links[0]
+        profile = self._profile_service.get_current_profile()
+        profile_name = profile.name if profile else None
+        if profile_name is None:
+            return
 
-        try:
-            menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            menu.grab_release()
+        menu.add_separator()
+        status = link.cache_status
+        if status == CACHE_STATUS_CACHED:
+            menu.add_command(
+                label="Delete cached file",
+                command=lambda: self._cache_service.delete_cached(profile_name, link),
+            )
+        elif status == CACHE_STATUS_FAILED:
+            menu.add_command(
+                label=f"Retry cache (last error: {self._truncate(link.cache_error)})",
+                command=lambda: self._cache_service.retry(profile_name, link),
+            )
+        elif status == CACHE_STATUS_NONE:
+            menu.add_command(
+                label="Cache for offline",
+                command=lambda: self._cache_service.enqueue(profile_name, link),
+            )
+        else:
+            menu.add_command(label=f"Cache status: {status}", state=tk.DISABLED)
+
+    def _copy_urls_for(self, links: List[Link]) -> None:
+        """Copy URLs of the given links."""
+        if not links:
+            return
+        payload = "\n".join(link.url for link in links)
+        self._copy_to_clipboard(payload)
+        self._flash_status(f"Copied {len(links)} URL(s) to clipboard")
+
+    def _copy_formatted_for(self, links: List[Link]) -> None:
+        if not links:
+            return
+        payload = "\n".join(f"{link.name} - {link.url}" for link in links)
+        self._copy_to_clipboard(payload)
+        self._flash_status(f"Copied {len(links)} link(s) with names to clipboard")
+
+    def _copy_markdown_for(self, links: List[Link]) -> None:
+        if not links:
+            return
+        payload = "\n".join(f"[{link.name}]({link.url})" for link in links)
+        self._copy_to_clipboard(payload)
+        self._flash_status(f"Copied {len(links)} markdown link(s) to clipboard")
 
     @staticmethod
     def _truncate(text: Optional[str], max_len: int = 50) -> str:
@@ -956,19 +1002,25 @@ class ProfileController:
         return text if len(text) <= max_len else text[: max_len - 1] + "…"
 
     def _toggle_favorite(self) -> None:
-        """Toggle favorite status of selected links. Newly favorited links are
+        """Toggle favorite status of currently selected links (vim binding)."""
+        self._toggle_favorite_for(self._get_selected_links())
+
+    def _toggle_favorite_for(self, links: List[Link]) -> None:
+        """Toggle favorite status of the given links. Newly favorited links are
         enqueued for offline cache; unfavorited links have any pending download
         cancelled and their on-disk cache removed."""
-        indices = self._get_selected_indices()
-        links = self._profile_service.get_links()
+        if not links:
+            return
+        all_links = self._profile_service.get_links()
+        id_to_idx = {id(link): i for i, link in enumerate(all_links)}
         profile = self._profile_service.get_current_profile()
         profile_name = profile.name if profile else None
 
-        for index in indices:
-            if not (0 <= index < len(links)):
+        for link in links:
+            idx = id_to_idx.get(id(link))
+            if idx is None:
                 continue
-            link = links[index]
-            self._profile_service.toggle_favorite(index)
+            self._profile_service.toggle_favorite(idx)
             if self._cache_service is None or profile_name is None:
                 continue
             if link.favorite:
@@ -976,20 +1028,26 @@ class ProfileController:
             else:
                 self._cache_service.cancel(link)
                 self._cache_service.delete_cached(profile_name, link)
-    
-    def _toggle_read_status(self) -> None:
-        """Toggle read status of selected links."""
-        indices = self._get_selected_indices()
-        links = self._profile_service.get_links()
 
-        for index in indices:
-            if index < len(links):
-                link = links[index]
-                if link.is_unread():
-                    link.mark_as_opened()
-                else:
-                    link.last_opened = None
-                self._profile_service.update_link(index, link)
+    def _toggle_read_status(self) -> None:
+        """Toggle read status of currently selected links (vim binding)."""
+        self._toggle_read_for(self._get_selected_links())
+
+    def _toggle_read_for(self, links: List[Link]) -> None:
+        """Toggle read status of the given links."""
+        if not links:
+            return
+        all_links = self._profile_service.get_links()
+        id_to_idx = {id(link): i for i, link in enumerate(all_links)}
+        for link in links:
+            idx = id_to_idx.get(id(link))
+            if idx is None:
+                continue
+            if link.is_unread():
+                link.mark_as_opened()
+            else:
+                link.last_opened = None
+            self._profile_service.update_link(idx, link)
 
     def _bulk_add_tags(self) -> None:
         """Add tags to selected links."""
@@ -1067,7 +1125,7 @@ class ProfileController:
 
         self._performing_targeted_selection = True
         self._profile_service.open_links(chosen)
-        self._link_list_view.select_and_scroll_to(chosen[-1])
+        self._select_link_after_open(links[chosen[-1]])
 
     def _open_random_unread(self, count: int = 1) -> None:
         """Open up to `count` random unread links without repeats."""
@@ -1084,7 +1142,7 @@ class ProfileController:
 
         self._performing_targeted_selection = True
         self._profile_service.open_links(chosen)
-        self._link_list_view.select_and_scroll_to(chosen[-1])
+        self._select_link_after_open(links[chosen[-1]])
 
     def _open_random_favorite(self, count: int = 1) -> None:
         """Open up to `count` random favorite links, biased toward unopened ones, without repeats."""
@@ -1095,25 +1153,27 @@ class ProfileController:
             messagebox.showinfo("Info", "No favorite links available.")
             return
 
-        chosen = weighted_sample(
-            favorite_indices, links, k=count, exponent=FAVORITE_BIAS_EXPONENT
-        )
+        chosen = weighted_sample(favorite_indices, links, k=count)
         if not chosen:
             return
 
         self._performing_targeted_selection = True
         self._profile_service.open_links(chosen)
-        self._link_list_view.select_and_scroll_to(chosen[-1])
-    
+        self._select_link_after_open(links[chosen[-1]])
+
+    def _select_link_after_open(self, link: Link) -> None:
+        """Best-effort select the link that was just opened (if visible)."""
+        self._link_viewer.select_and_scroll_to_link(link)
+
     def _focus_table(self) -> None:
         """Give focus to the link table."""
-        self._link_list_view.focus()
-    
+        self._link_viewer.focus()
+
     def _on_tab_pressed(self, event) -> str:
         """Handle Tab key to switch focus between search bar and table."""
         if self._search_bar.has_focus():
             # Switch from search bar to table
-            self._link_list_view.focus()
+            self._link_viewer.focus()
         else:
             # Switch from table to search bar
             self._search_bar.focus()
@@ -1149,6 +1209,12 @@ class ProfileController:
         indices = self._get_selected_indices()
         if indices:
             self._profile_service.open_links(indices)
+
+    def _open_selected_in_browser(self) -> None:
+        """Open selected links in the browser, bypassing the offline cache."""
+        indices = self._get_selected_indices()
+        if indices:
+            self._profile_service.open_links(indices, force_browser=True)
 
     def _copy_to_clipboard(self, text: str) -> None:
         """Copy text to the system clipboard."""
@@ -1190,30 +1256,15 @@ class ProfileController:
 
     def _copy_selected_urls(self) -> None:
         """Copy URLs of selected links to the clipboard, one per line."""
-        links = self._selected_links_in_view_order()
-        if not links:
-            return
-        payload = "\n".join(link.url for link in links)
-        self._copy_to_clipboard(payload)
-        self._flash_status(f"Copied {len(links)} URL(s) to clipboard")
+        self._copy_urls_for(self._selected_links_in_view_order())
 
     def _copy_selected_formatted(self) -> None:
         """Copy selected links as 'Name - URL' lines to the clipboard."""
-        links = self._selected_links_in_view_order()
-        if not links:
-            return
-        payload = "\n".join(f"{link.name} - {link.url}" for link in links)
-        self._copy_to_clipboard(payload)
-        self._flash_status(f"Copied {len(links)} link(s) with names to clipboard")
+        self._copy_formatted_for(self._selected_links_in_view_order())
 
     def _copy_selected_markdown(self) -> None:
         """Copy selected links as Markdown links to the clipboard."""
-        links = self._selected_links_in_view_order()
-        if not links:
-            return
-        payload = "\n".join(f"[{link.name}]({link.url})" for link in links)
-        self._copy_to_clipboard(payload)
-        self._flash_status(f"Copied {len(links)} markdown link(s) to clipboard")
+        self._copy_markdown_for(self._selected_links_in_view_order())
 
     def _copy_all_filtered_urls(self) -> None:
         """Copy URLs of every link in the current filtered view."""
@@ -1466,17 +1517,22 @@ class ProfileController:
             return
 
         def on_restore(restored_links: List[Link]) -> None:
-            """Persist restored links and refresh observers."""
-            self._profile_service._save_current_profile()
-            self._profile_service._notify_observers()
+            """Restore via the service so the points-pool invariant is updated."""
+            self._profile_service.restore_archived_links(restored_links)
 
         def on_permanent_delete(deleted_links: List[Link]) -> None:
-            """Permanently remove links from the underlying profile."""
             self._profile_service.permanently_delete_links(deleted_links)
 
         def on_open(link: Link) -> None:
-            """Open an archived link in the browser without changing its state."""
+            """Open an archived link in the browser without marking it opened."""
             self._profile_service._browser_service.open_url(link.get_formatted_url())
+
+        def on_toggle_favorite(links: List[Link]) -> None:
+            """Toggle favorite state on archived links (still allowed)."""
+            for link in links:
+                link.toggle_favorite()
+            self._profile_service._save_current_profile()
+            self._profile_service._notify_observers()
 
         ArchivedLinksDialog(
             self._root,
@@ -1484,6 +1540,8 @@ class ProfileController:
             on_restore=on_restore,
             on_permanent_delete=on_permanent_delete,
             on_open=on_open,
+            on_edit=self._edit_link_directly,
+            on_toggle_favorite=on_toggle_favorite,
         )
 
     def _show_cache_dialog(self) -> None:
